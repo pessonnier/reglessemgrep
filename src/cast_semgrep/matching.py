@@ -32,6 +32,7 @@ CATEGORY_ALIASES = {
     "architecture": "architecture", "architectural design": "architecture",
     "maintainability": "maintainability", "changeability": "maintainability",
 }
+GENERIC_DEFECT_TERMS = {"injection", "security", "unsafe", "insecure", "vulnerability", "access", "input"}
 
 
 def tokens(text: str | None) -> set[str]:
@@ -184,10 +185,11 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
                 if cast_languages and target_languages and not (cast_languages & target_languages):
                     continue
                 score, factors, evidence = score_pair(cast_rule, target)
+                distinctive_title_terms = set(factors["shared_title_terms"]) - GENERIC_DEFECT_TERMS
                 plausible = (
                     bool(factors["shared_cwe"])
                     or (bool(factors["shared_owasp"]) and
-                        (len(factors["shared_title_terms"]) >= 1 or len(factors["shared_description_terms"]) >= 3))
+                        bool(distinctive_title_terms) and len(factors["shared_description_terms"]) >= 2)
                     or len(factors["shared_title_terms"]) >= 2
                 )
                 if score >= min_score and plausible:

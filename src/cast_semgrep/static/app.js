@@ -76,7 +76,7 @@ function distribution(targetId, items, key) {
     const action = () => {
       $('filters').reset();
       $('filters').elements.source.value = item.source;
-      $('filters').elements[key].value = item[key] === 'Non renseignée' ? '' : item[key];
+      $('filters').elements[key].value = item[key];
       state.page = 1;
       loadRules().then(() => show('explorer')).catch(handleError);
     };
@@ -101,7 +101,7 @@ async function loadRules() {
     const row = node('tr'); row.tabIndex = 0;
     const tag = node('span', rule.source, `tag ${rule.source.toLowerCase()}`);
     const source = node('td'); source.append(tag); row.append(source);
-    for (const value of [rule.rule_id, rule.title || '—', rule.languages.join(', ') || '—', rule.category || '—', rule.severity || '—']) row.append(node('td', value));
+    for (const value of [rule.rule_id, rule.title || '—', rule.languages.join(', ') || '—', rule.categories.join(', ') || '—', rule.severity || '—']) row.append(node('td', value));
     row.addEventListener('click', () => openRule(rule.rule_key));
     row.addEventListener('keydown', event => {if (event.key === 'Enter') openRule(rule.rule_key);});
     body.append(row);

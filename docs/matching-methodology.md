@@ -16,7 +16,7 @@ Pour chaque règle CAST, le programme recherche des règles Semgrep partageant u
 | Proximité des termes de description | 20 |
 | Catégorie compatible | 10 |
 
-Le score est plafonné à 100. Une paire doit avoir un CWE commun, ou un OWASP commun accompagné d’au moins un terme du titre ou trois termes descriptifs communs, ou au moins deux termes du titre communs ; elle doit aussi atteindre le seuil configuré. Seuls les `top_k` meilleurs candidats par règle CAST sont conservés à chaque calcul. Les paires déjà revues par un expert restent conservées même si leur rang évolue.
+Le score est plafonné à 100. Une paire doit avoir un CWE commun, ou un OWASP commun accompagné d’un terme distinctif du titre et de deux termes descriptifs communs, ou au moins deux termes du titre communs ; elle doit aussi atteindre le seuil configuré. Des termes génériques tels que « injection » ne suffisent pas, seuls, pour déclencher une piste OWASP. Seuls les `top_k` meilleurs candidats par règle CAST sont conservés à chaque calcul. Les paires déjà revues par un expert restent conservées même si leur rang évolue.
 
 La convergence des préconditions et la similarité sémantique restent « non établies / non calculées » à ce stade. Le niveau de preuve indique seulement si une référence de taxonomie est partagée ou si le candidat repose sur des termes communs.
 

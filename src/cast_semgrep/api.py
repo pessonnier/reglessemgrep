@@ -34,10 +34,13 @@ def summary():
         counts = {row["source"]: row["count"] for row in conn.execute(
             "SELECT source,COUNT(*) AS count FROM rules WHERE status='present' GROUP BY source"
         )}
-        categories = [dict(row) for row in conn.execute(
-            "SELECT source,COALESCE(category,'Non renseignée') AS category,COUNT(*) AS count "
-            "FROM rules WHERE status='present' GROUP BY source,category ORDER BY count DESC LIMIT 30"
-        )]
+        categories = [dict(row) for row in conn.execute("""
+            SELECT source,category,COUNT(*) AS count FROM (
+              SELECT r.source,j.value AS category FROM rules r,json_each(r.categories_json) j WHERE r.status='present'
+              UNION ALL
+              SELECT source,'Non renseignée' FROM rules WHERE status='present' AND json_array_length(categories_json)=0
+            ) GROUP BY source,category ORDER BY count DESC LIMIT 30
+        """)]
         languages = [dict(row) for row in conn.execute(
             "SELECT r.source,j.value AS language,COUNT(*) AS count FROM rules r,json_each(r.languages_json) j "
             "WHERE r.status='present' GROUP BY r.source,j.value ORDER BY count DESC LIMIT 30"
@@ -78,14 +81,20 @@ def list_rules(
         where.append("EXISTS(SELECT 1 FROM json_each(r.languages_json) WHERE LOWER(value)=?)")
         values.append(language.lower())
     if category:
-        where.append("EXISTS(SELECT 1 FROM json_each(r.categories_json) WHERE LOWER(value)=?)")
-        values.append(category.lower())
+        if category.lower() == "non renseignée":
+            where.append("json_array_length(r.categories_json)=0")
+        else:
+            where.append("EXISTS(SELECT 1 FROM json_each(r.categories_json) WHERE LOWER(value)=?)")
+            values.append(category.lower())
     if cwe:
         where.append("EXISTS(SELECT 1 FROM json_each(r.cwe_json) WHERE LOWER(value)=?)")
         values.append(cwe.lower())
     if severity:
-        where.append("LOWER(COALESCE(r.severity,''))=?")
-        values.append(severity.lower())
+        if severity.lower() == "non renseignée":
+            where.append("r.severity IS NULL")
+        else:
+            where.append("LOWER(COALESCE(r.severity,''))=?")
+            values.append(severity.lower())
     predicate = " AND ".join(where)
     with connect(settings.db_path) as conn:
         initialize(conn)

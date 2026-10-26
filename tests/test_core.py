@@ -126,6 +126,21 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM expert_reviews").fetchone()[0], 1)
             self.assertEqual(conn.execute("SELECT decision FROM expert_reviews").fetchone()[0], "partial")
 
+    def test_owasp_broad_category_does_not_pair_unrelated_injections(self):
+        cast_rule = rule("CAST:xpath", "CAST", "xpath", "XPath injection", "CWE-643")
+        semgrep_rule = rule("Semgrep:ldap", "Semgrep", "ldap", "LDAP injection", "CWE-90")
+        for item, raw in ((cast_rule, "A03-2021"), (semgrep_rule, "A03:2021")):
+            item["cwe_json"] = "[]"
+            item["owasp_json"] = '["A03:2021"]'
+            item["owasp_raw_json"] = json.dumps([raw])
+        with connect(self.config.db_path) as conn:
+            initialize(conn)
+            cast_snapshot = create_snapshot(conn, source="CAST", revision="test", archive_path=self.root)
+            semgrep_snapshot = create_snapshot(conn, source="Semgrep", revision="test", archive_path=self.root)
+            upsert_rules(conn, [cast_rule], source="CAST", snapshot_id=cast_snapshot)
+            upsert_rules(conn, [semgrep_rule], source="Semgrep", snapshot_id=semgrep_snapshot)
+        self.assertEqual(calculate_matches(self.config)["candidates"], 0)
+
     def test_api_keeps_sources_llm_and_expert_opinion_separate(self):
         with connect(self.config.db_path) as conn:
             initialize(conn)
@@ -143,6 +158,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(comparison["llm_proposals"], [])
             self.assertEqual(comparison["expert_reviews"][0]["decision"], "partial")
             self.assertEqual(api.list_rules(source="CAST", page=1, page_size=30)["total"], 1)
+            self.assertEqual(api.list_rules(category="security", page=1, page_size=30)["total"], 2)
             self.assertEqual(api.summary()["unmatched"], {"CAST": 0, "Semgrep": 0})
         finally:
             api.settings = previous
