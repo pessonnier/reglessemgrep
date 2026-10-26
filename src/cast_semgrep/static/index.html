@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CAST · Semgrep — comparateur de règles</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">C:S</span><div><strong>CAST · Semgrep</strong><small>Comparateur de règles</small></div></div>
+    <nav><button id="nav-dashboard" class="nav-active">Vue générale</button><button id="nav-explorer">Explorer les règles</button></nav>
+  </header>
+  <main>
+    <section id="dashboard" class="view">
+      <div class="intro"><p class="eyebrow">Inventaires locaux</p><h1>Comparer les catalogues avec des preuves vérifiables</h1><p>Les propositions automatiques classent les pistes de recherche. Seul l’avis de l’expert confirme une correspondance.</p></div>
+      <div id="metrics" class="metrics"></div>
+      <div class="dashboard-grid"><section class="panel"><h2>Derniers imports</h2><div id="snapshots"></div></section><section class="panel"><h2>Répartition par catégorie</h2><div id="categories"></div></section><section class="panel"><h2>Langages</h2><div id="languages"></div></section><section class="panel"><h2>Sévérités</h2><div id="severities"></div></section></div>
+    </section>
+
+    <section id="explorer" class="view hidden">
+      <div class="section-heading"><div><p class="eyebrow">Catalogue</p><h1>Explorer les règles</h1></div><div class="exports"><a href="/api/export/rules.csv">Exporter les règles CSV</a><a href="/api/export/matches.csv">Exporter les rapprochements CSV</a></div></div>
+      <form id="filters" class="filters">
+        <label>Recherche <input name="q" type="search" placeholder="Identifiant, titre, description"></label>
+        <label>Éditeur <select name="source"><option value="">Tous</option><option>CAST</option><option>Semgrep</option></select></label>
+        <label>Langage <input name="language" placeholder="ex. python"></label>
+        <label>Catégorie <input name="category" placeholder="ex. security"></label>
+        <label>CWE <input name="cwe" placeholder="ex. CWE-89"></label>
+        <label>Sévérité <input name="severity" placeholder="ex. WARNING"></label>
+        <button type="submit" class="primary">Rechercher</button>
+      </form>
+      <div class="panel table-panel"><div class="table-toolbar"><span id="result-count"></span><div><button id="prev-page" type="button">Précédent</button><span id="page-label"></span><button id="next-page" type="button">Suivant</button></div></div><div class="table-scroll"><table><thead><tr><th>Éditeur</th><th>ID</th><th>Intitulé</th><th>Langages</th><th>Catégorie</th><th>Sévérité</th></tr></thead><tbody id="rules-body"></tbody></table></div></div>
+    </section>
+
+    <section id="detail" class="view hidden">
+      <div class="section-heading"><div><button id="back-to-explorer" class="text-button">← Retour à l’explorateur</button><p class="eyebrow" id="detail-source"></p><h1 id="detail-title"></h1><p id="detail-id" class="mono muted"></p></div><a id="detail-url" class="source-link" target="_blank" rel="noopener noreferrer">Documentation originale ↗</a></div>
+      <div class="detail-grid"><section class="panel"><h2>Règle</h2><div id="detail-fields"></div><details><summary>Contenu archivé</summary><pre id="raw-content"></pre></details></section><section class="panel"><h2>Correspondances candidates</h2><p class="muted small">Score de classement, pas une preuve d’équivalence.</p><div id="matches"></div><div class="manual-pair"><h3>Ajouter une paire à examiner</h3><input id="other-query" placeholder="Rechercher une règle de l’autre éditeur"><button id="other-search">Chercher</button><select id="other-results"></select><button id="add-pair" class="primary">Ajouter</button></div></section></div>
+    </section>
+
+    <section id="comparison" class="view hidden">
+      <button id="back-to-detail" class="text-button">← Retour à la règle</button><p class="eyebrow">Comparaison</p><h1>Rapprochement proposé</h1>
+      <div id="comparison-score" class="score-banner"></div>
+      <div class="comparison-columns"><section class="panel"><p class="source-tag cast">CAST</p><h2 id="compare-cast-title"></h2><div id="compare-cast"></div></section><section class="panel"><p class="source-tag semgrep">Semgrep</p><h2 id="compare-semgrep-title"></h2><div id="compare-semgrep"></div></section></div>
+      <div class="three-columns"><section class="panel"><h2>Références sourcées</h2><p class="muted small">Champs et liens des catalogues originaux.</p><div id="evidence"></div></section><section class="panel"><h2>Propositions LLM</h2><p class="muted small">Analyse automatique facultative, distincte des sources.</p><div id="llm-proposals"></div></section><section class="panel"><h2>Avis de l’expert</h2><p class="muted small">Décision humaine historisée.</p><div id="expert-reviews"></div><form id="review-form"><label>Votre nom <input name="reviewer" required maxlength="120"></label><label>Décision <select name="decision"><option value="indeterminate">Indéterminé</option><option value="equivalent">Équivalent</option><option value="partial">Partiellement équivalent</option><option value="complementary">Complémentaire</option><option value="related">Apparenté</option><option value="no_match">Sans correspondance identifiée</option><option value="not_comparable">Non comparable</option></select></label><label>Justification <textarea name="comment" rows="4" maxlength="5000"></textarea></label><button class="primary">Enregistrer l’avis</button></form></section></div>
+    </section>
+  </main>
+  <footer>Inventaires datés et locaux · Les contenus détaillés restent dans l’archive locale.</footer>
+</body>
+</html>

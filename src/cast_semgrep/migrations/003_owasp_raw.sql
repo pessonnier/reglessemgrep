@@ -1,0 +1,2 @@
+ALTER TABLE rules ADD COLUMN owasp_raw_json TEXT NOT NULL DEFAULT '[]';
+

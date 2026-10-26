@@ -1,0 +1,79 @@
+"""Local command line entry point."""
+
+from __future__ import annotations
+
+import argparse
+import json
+
+from .cast import collect_cast, import_cast, latest_archive
+from .config import load_settings
+from .db import connect, initialize
+from .matching import calculate_matches
+from .semgrep import import_semgrep, local_checkout, sync_semgrep
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="CAST–Semgrep rules comparator")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("init", help="Create the local database")
+    cast_sync = sub.add_parser("sync-cast", help="Archive CAST data and import it")
+    cast_sync.add_argument("--refresh", action="store_true", help="Start a new collection")
+    cast_sync.add_argument("--offline", action="store_true", help="Only import the local archive")
+    sub.add_parser("import-cast", help="Rebuild CAST records from the local archive")
+    semgrep_sync = sub.add_parser("sync-semgrep", help="Clone/fetch Semgrep rules and import them")
+    semgrep_sync.add_argument("--refresh", action="store_true", help="Fetch the current develop revision")
+    semgrep_sync.add_argument("--offline", action="store_true", help="Only import the local checkout")
+    sub.add_parser("import-semgrep", help="Rebuild Semgrep records from the local checkout")
+    match = sub.add_parser("match", help="Recalculate deterministic candidates")
+    match.add_argument("--top-k", type=int, default=15)
+    match.add_argument("--min-score", type=int, default=18)
+    serve = sub.add_parser("serve", help="Start the local web application")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    sub.add_parser("status", help="Show local import status")
+    args = parser.parse_args()
+    settings = load_settings()
+
+    if args.command == "init":
+        with connect(settings.db_path) as conn:
+            initialize(conn)
+        print(settings.db_path)
+    elif args.command == "sync-cast":
+        if args.offline:
+            archive = latest_archive(settings.data_dir)
+            if archive is None:
+                parser.error("No CAST archive is available for offline import")
+        else:
+            archive = collect_cast(settings, refresh=args.refresh)
+        print(json.dumps(import_cast(settings, archive), indent=2))
+    elif args.command == "import-cast":
+        print(json.dumps(import_cast(settings), indent=2))
+    elif args.command == "sync-semgrep":
+        if args.offline:
+            if not (local_checkout(settings) / ".git").is_dir():
+                parser.error("No Semgrep checkout is available for offline import")
+        else:
+            print(json.dumps(sync_semgrep(settings, refresh=args.refresh), indent=2))
+        print(json.dumps(import_semgrep(settings), indent=2))
+    elif args.command == "import-semgrep":
+        print(json.dumps(import_semgrep(settings), indent=2))
+    elif args.command == "match":
+        print(json.dumps(calculate_matches(settings, top_k=args.top_k, min_score=args.min_score), indent=2))
+    elif args.command == "serve":
+        import uvicorn
+        uvicorn.run("cast_semgrep.api:app", host=args.host, port=args.port, reload=False)
+    elif args.command == "status":
+        with connect(settings.db_path) as conn:
+            initialize(conn)
+            counts = {row["source"]: row["count"] for row in conn.execute(
+                "SELECT source,COUNT(*) AS count FROM rules WHERE status='present' GROUP BY source"
+            )}
+            snapshots = [dict(row) for row in conn.execute("SELECT * FROM snapshots ORDER BY id DESC LIMIT 4")]
+            candidate_count = conn.execute("SELECT COUNT(*) FROM match_candidates").fetchone()[0]
+        for snapshot in snapshots:
+            snapshot["stats"] = json.loads(snapshot.pop("stats_json"))
+        print(json.dumps({"rules": counts, "candidates": candidate_count, "snapshots": snapshots}, indent=2))
+
+
+if __name__ == "__main__":
+    main()
