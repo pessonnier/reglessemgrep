@@ -114,7 +114,7 @@ class UncertaintyTests(unittest.TestCase):
         filtered = api.list_rules(false_positive_risk="high", uncertainty_level="medium", assessment_status="expert_assessed", page=1, page_size=30)
         self.assertEqual(filtered["total"], 1)
         self.assertEqual(filtered["items"][0]["uncertainty"]["false_negative_risk"], "unknown")
-        self.assertEqual(api.list_rules(source="CAST", uncertainty_level="high", page=1, page_size=30)["total"], 0)
+        self.assertEqual(api.list_rules(source="CAST", uncertainty_level="high", page=1, page_size=30)["total"], 1)
         async def body(response):
             return ''.join([chunk async for chunk in response.body_iterator])
         exported = list(csv.DictReader(io.StringIO(asyncio.run(body(api.export_rules("Semgrep"))))))

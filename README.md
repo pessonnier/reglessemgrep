@@ -1,6 +1,6 @@
 # CAST–Semgrep Rules Comparator
 
-Application locale pour inventorier les règles CAST et Semgrep Community Edition, rechercher des candidats de rapprochement et consigner un avis expert. Les scores servent à ordonner les candidats : ils ne prouvent pas une équivalence technique.
+Application locale pour montrer quelles règles Semgrep correspondent aux règles CAST. L’accueil présente chaque règle CAST face à ses candidats Semgrep, avec accès à la comparaison des principes et aux avis experts. Les scores servent à ordonner les candidats : ils ne prouvent pas une équivalence technique.
 
 ## Démarrage sans conteneur
 
@@ -70,3 +70,10 @@ uv run comparator serve
 La migration conserve les règles, rapprochements et avis existants. Aucune nouvelle collecte CAST ou Semgrep n’est nécessaire.
 
 La [spécification v2 et son planning S6](docs/specification-v2-validation.md) prévoit les contrats de détection, **les exemples de code avec et sans vulnérabilité (S6.2)**, l’exécution des analyseurs et la mesure des faux positifs/non-détections. Un [modèle de dossier de validation](docs/templates/validation-case.md) est fourni. Les tests de détection et la confrontation au moteur CAST restent à implémenter ; les avis actuels sont qualitatifs.
+## Parcours principal CAST → Semgrep
+
+L’accueil affiche les règles CAST et leurs candidats Semgrep côte à côte. Toutes les règles CAST présentes sont incluses, même sans candidat. Les paires ayant un avis expert « équivalent » sont distinguées des propositions automatiques. Trois paires sont présentées par règle ; ouvrir la fiche CAST donne accès à toutes les paires, avec chargement de la suite si nécessaire.
+
+La recherche porte sur l’identifiant/intitulé CAST ou Semgrep (et la description CAST). Les filtres permettent de consulter les règles avec candidats, sans candidat identifié ou avec un avis expert d’équivalence. Les compteurs dénombrent des règles CAST, pas des paires, et précèdent le filtre de correspondance. L’absence de candidat ne démontre pas une absence de couverture.
+
+L’explorateur général s’ouvre sur CAST ; ses boutons donnent un accès direct à CAST, Semgrep ou aux deux catalogues. Les filtres d’incertitude sont visibles uniquement pour Semgrep et sont effacés lors d’un changement d’éditeur. Le bouton Réinitialiser permet de retrouver le catalogue complet de l’éditeur sélectionné.

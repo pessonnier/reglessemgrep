@@ -10,10 +10,28 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">C:S</span><div><strong>CAST · Semgrep</strong><small>Comparateur de règles</small></div></div>
-    <nav><button id="nav-dashboard" class="nav-active">Vue générale</button><button id="nav-explorer">Explorer les règles</button></nav>
+    <nav><button id="nav-correspondences" class="nav-active">CAST → Semgrep</button><button id="nav-explorer">Explorer les règles</button><button id="nav-dashboard">Inventaires et statistiques</button></nav>
   </header>
   <main>
-    <section id="dashboard" class="view">
+    <section id="correspondences" class="view">
+      <div class="section-heading"><div><p class="eyebrow">Correspondances CAST → Semgrep</p><h1>Quelles règles Semgrep correspondent à vos règles CAST ?</h1><p class="muted">Partez d’une règle CAST, examinez ses candidats Semgrep et comparez leurs principes de détection. Les avis d’équivalence de l’expert sont distingués du classement automatique.</p></div></div>
+      <div id="correspondence-metrics" class="metrics correspondence-metrics"></div>
+      <form id="correspondence-filters" class="filters correspondence-filters">
+        <label>Recherche CAST ou Semgrep <input name="q" type="search" placeholder="Identifiant ou intitulé de règle"></label>
+        <label>Langage CAST <input name="language" placeholder="ex. JEE, Python"></label>
+        <label>CWE de la règle CAST <input name="cwe" placeholder="ex. CWE-89"></label>
+        <label>Correspondances <select name="status"><option value="">Toutes les règles CAST</option><option value="with_candidates">Avec candidats Semgrep</option><option value="without_candidates">Sans candidat identifié</option><option value="expert_equivalent">Avec avis expert « équivalent »</option></select></label>
+        <button type="submit" class="primary">Rechercher</button><button type="button" id="reset-correspondences" class="secondary">Réinitialiser</button>
+      </form>
+      <p class="muted small">Les compteurs portent sur les règles CAST correspondant à la recherche, avant le filtre de correspondance. Sans candidat identifié ne signifie pas absence de couverture.</p>
+      <div class="panel table-panel">
+        <div class="table-toolbar"><span id="correspondence-count" role="status"></span><div><button id="correspondence-prev" type="button">Précédent</button><span id="correspondence-page"></span><button id="correspondence-next" type="button">Suivant</button></div></div>
+        <div class="mapping-heading"><span>Règle CAST</span><span>Règles Semgrep candidates · jusqu’à 3 paires affichées</span></div>
+        <div id="correspondence-list"></div>
+      </div>
+    </section>
+
+    <section id="dashboard" class="view hidden">
       <div class="intro"><p class="eyebrow">Inventaires locaux</p><h1>Comparer les catalogues avec des preuves vérifiables</h1><p>Les propositions automatiques classent les pistes de recherche. Seul l’avis de l’expert confirme une correspondance.</p></div>
       <div id="metrics" class="metrics"></div>
       <section class="panel uncertainty-overview"><h2>Incertitude des règles Semgrep</h2><p class="muted small">L’incertitude mesure les limites de l’évaluation. Les risques de faux positifs et de non-détection sont renseignés séparément. Sans évaluation, l’incertitude est élevée et les risques sont non évalués.</p><div id="uncertainty-summary"></div></section>
@@ -22,19 +40,22 @@
 
     <section id="explorer" class="view hidden">
       <div class="section-heading"><div><p class="eyebrow">Catalogue</p><h1>Explorer les règles</h1></div><div class="exports"><a href="/api/export/rules.csv">Exporter les règles CSV</a><a href="/api/export/matches.csv">Exporter les rapprochements CSV</a></div></div>
+      <div class="catalog-switch"><button type="button" id="catalog-cast">Règles CAST</button><button type="button" id="catalog-semgrep">Règles Semgrep</button><button type="button" id="catalog-all">Tous les éditeurs</button></div>
       <form id="filters" class="filters">
         <label>Recherche <input name="q" type="search" placeholder="Identifiant, titre, description"></label>
-        <label>Éditeur <select name="source"><option value="">Tous</option><option>CAST</option><option>Semgrep</option></select></label>
+        <label>Éditeur <select name="source"><option value="">Tous</option><option selected>CAST</option><option>Semgrep</option></select></label>
         <label>Langage <input name="language" placeholder="ex. python"></label>
         <label>Catégorie <input name="category" placeholder="ex. security"></label>
         <label>CWE <input name="cwe" placeholder="ex. CWE-89"></label>
         <label>Sévérité <input name="severity" placeholder="ex. WARNING"></label>
-        <label>Incertitude Semgrep <select name="uncertainty_level"><option value="">Toutes</option><option value="high">Élevée</option><option value="medium">Moyenne</option><option value="low">Faible</option><option value="unknown">Non évaluée</option></select></label>
-        <label>Évaluation Semgrep <select name="assessment_status"><option value="">Toutes</option><option value="not_evaluated">À évaluer</option><option value="stale">À réévaluer</option><option value="expert_assessed">Avis expert enregistré</option></select></label>
-        <label>Risque de faux positifs <select name="false_positive_risk"><option value="">Tous</option><option value="unknown">Non évalué</option><option value="high">Élevé</option><option value="medium">Moyen</option><option value="low">Faible</option></select></label>
-        <label>Risque de non-détection <select name="false_negative_risk"><option value="">Tous</option><option value="unknown">Non évalué</option><option value="high">Élevé</option><option value="medium">Moyen</option><option value="low">Faible</option></select></label>
+        <label class="semgrep-filter" hidden>Incertitude Semgrep <select name="uncertainty_level"><option value="">Toutes</option><option value="high">Élevée</option><option value="medium">Moyenne</option><option value="low">Faible</option><option value="unknown">Non évaluée</option></select></label>
+        <label class="semgrep-filter" hidden>Évaluation Semgrep <select name="assessment_status"><option value="">Toutes</option><option value="not_evaluated">À évaluer</option><option value="stale">À réévaluer</option><option value="expert_assessed">Avis expert enregistré</option></select></label>
+        <label class="semgrep-filter" hidden>Risque de faux positifs <select name="false_positive_risk"><option value="">Tous</option><option value="unknown">Non évalué</option><option value="high">Élevé</option><option value="medium">Moyen</option><option value="low">Faible</option></select></label>
+        <label class="semgrep-filter" hidden>Risque de non-détection <select name="false_negative_risk"><option value="">Tous</option><option value="unknown">Non évalué</option><option value="high">Élevé</option><option value="medium">Moyen</option><option value="low">Faible</option></select></label>
         <button type="submit" class="primary">Rechercher</button>
+        <button type="button" id="reset-catalog" class="secondary">Réinitialiser les filtres</button>
       </form>
+      <p id="catalog-context" class="muted small"></p>
       <div class="panel table-panel"><div class="table-toolbar"><span id="result-count"></span><div><button id="prev-page" type="button">Précédent</button><span id="page-label"></span><button id="next-page" type="button">Suivant</button></div></div><div class="table-scroll"><table><thead><tr><th>Éditeur</th><th>ID</th><th>Intitulé</th><th>Langages</th><th>Catégorie</th><th>Sévérité</th><th>Incertitude / risques Semgrep</th></tr></thead><tbody id="rules-body"></tbody></table></div></div>
     </section>
 

@@ -27,3 +27,8 @@ Le fichier `.env`, les archives, le dépôt Semgrep téléchargé et SQLite sont
 `POST /api/uncertainty-assessments` ajoute un avis ; la vérification de version et l’insertion sont dans une transaction SQLite immédiate. Un avis obsolète reçoit HTTP 409. Les listes/fiches/comparaisons exposent `uncertainty`, les fiches ajoutent `uncertainty_history`. Les filtres supplémentaires sont `uncertainty_level`, `assessment_status`, `false_positive_risk` et `false_negative_risk`.
 
 La migration v3→v4 conserve les données et produit un état initial non évalué. Après mise à jour, lancer `comparator import-semgrep` pour enrichir les règles existantes à partir de l’archive locale. Les migrations ont lieu à l’initialisation ; effectuer la migration avant de démarrer le serveur. Les avis reposent sur un nom saisi, sans authentification multi-utilisateur. Le service reste destiné à une utilisation locale.
+## Vue principale des correspondances
+
+`correspondences.py` et `GET /api/correspondences` regroupent les paires par règle CAST. Les règles sans candidat sont conservées. Seules les règles présentes des deux catalogues entrent dans les paires et compteurs ; la dernière décision experte détermine le filtre d’équivalence. La pagination porte sur les règles CAST, avec un aperçu de trois paires par règle. La fiche charge toutes les paires via `GET /api/matches?key=…&offset=…`.
+
+La navigation distingue la vue CAST → Semgrep, l’explorateur et les statistiques. Le retour d’une comparaison conserve la liste et les filtres d’origine. Les filtres d’incertitude sont réservés au catalogue Semgrep côté interface ; l’API ignore ces filtres si `source=CAST`, pour ne pas masquer CAST avec un filtre incompatible.

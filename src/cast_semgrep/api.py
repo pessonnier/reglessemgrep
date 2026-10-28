@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from .config import load_settings
 from .db import connect, initialize, utc_now
 from .uncertainty import rules_with_uncertainty
+from .correspondences import cast_correspondences
 
 
 settings = load_settings()
@@ -107,7 +108,7 @@ def list_rules(
             values.append(severity.lower())
     for field, value in (("uncertainty_level", uncertainty_level), ("status", assessment_status),
                          ("false_positive_risk", false_positive_risk), ("false_negative_risk", false_negative_risk)):
-        if value:
+        if value and source != "CAST":
             where.append(f"EXISTS(SELECT 1 FROM rule_uncertainty u WHERE u.rule_key=r.rule_key AND u.{field}=?)")
             values.append(value)
     predicate = " AND ".join(where)
@@ -120,6 +121,18 @@ def list_rules(
         ).fetchall()
         items = rules_with_uncertainty(conn, rows)
     return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+@app.get("/api/correspondences")
+def list_correspondences(
+    q: str = "", language: str = "", cwe: str = "",
+    status: Literal["", "with_candidates", "without_candidates", "expert_equivalent"] = "",
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+):
+    with connect(settings.db_path) as conn:
+        initialize(conn)
+        return cast_correspondences(conn, q=q, language=language, cwe=cwe, status=status,
+                                    page=page, page_size=page_size)
 
 
 @app.get("/api/rule")
@@ -143,7 +156,7 @@ def get_rule(key: str):
 
 
 @app.get("/api/matches")
-def list_matches(key: str, limit: int = Query(30, ge=1, le=100)):
+def list_matches(key: str, limit: int = Query(30, ge=1, le=100), offset: int = Query(0, ge=0)):
     with connect(settings.db_path) as conn:
         initialize(conn)
         rule = conn.execute("SELECT source FROM rules WHERE rule_key=?", (key,)).fetchone()
@@ -156,14 +169,16 @@ def list_matches(key: str, limit: int = Query(30, ge=1, le=100)):
           (SELECT decision FROM expert_reviews e WHERE e.cast_key=m.cast_key AND e.semgrep_key=m.semgrep_key ORDER BY id DESC LIMIT 1) AS expert_decision,
           (SELECT COUNT(*) FROM match_evidence e WHERE e.cast_key=m.cast_key AND e.semgrep_key=m.semgrep_key) AS evidence_count
           FROM match_candidates m JOIN rules r ON r.rule_key=m.{other}
-          WHERE m.{own}=? ORDER BY m.score DESC,m.{other} LIMIT ?
-        """, (key, limit)).fetchall()
+          WHERE m.{own}=? AND r.status='present' ORDER BY m.score DESC,m.{other} LIMIT ? OFFSET ?
+        """, (key, limit, offset)).fetchall()
+        total = conn.execute(f"SELECT COUNT(*) FROM match_candidates m JOIN rules r ON r.rule_key=m.{other} "
+                             f"WHERE m.{own}=? AND r.status='present'", (key,)).fetchone()[0]
     items = []
     for row in rows:
         item = dict(row)
         item["factors"] = json.loads(item.pop("factors_json"))
         items.append(item)
-    return {"items": items}
+    return {"items": items, "total": total}
 
 
 @app.get("/api/match")

@@ -1,8 +1,12 @@
 const $ = (id) => document.getElementById(id);
-const state = {page: 1, pageSize: 30, total: 0, currentRule: null, currentMatch: null};
+const state = {page: 1, pageSize: 30, total: 0, currentRule: null, currentMatch: null,
+  mappingPage: 1, mappingPageSize: 20, mappingTotal: 0, view: 'correspondences', listOrigin: 'correspondences', comparisonReturn: 'correspondences'};
 const levels = {unknown: 'Non évalué', low: 'Faible', medium: 'Moyen', high: 'Élevé'};
 const uncertaintyLevels = {unknown: 'Non évaluée', low: 'Faible', medium: 'Moyenne', high: 'Élevée'};
 const assessmentStatuses = {not_evaluated: 'À évaluer', stale: 'À réévaluer', expert_assessed: 'Avis expert enregistré'};
+const decisions = {equivalent: 'Équivalent selon l’expert', partial: 'Partiellement équivalent selon l’expert',
+  complementary: 'Complémentaire selon l’expert', related: 'Apparenté selon l’expert', no_match: 'Sans correspondance selon l’expert',
+  not_comparable: 'Non comparable selon l’expert', indeterminate: 'Indéterminé selon l’expert'};
 
 function node(tag, text = '', className = '') {
   const element = document.createElement(tag);
@@ -22,9 +26,13 @@ async function request(url, options) {
 }
 
 function show(view) {
-  for (const id of ['dashboard', 'explorer', 'detail', 'comparison']) $(id).classList.toggle('hidden', id !== view);
+  state.view = view;
+  if (['correspondences', 'explorer'].includes(view)) state.listOrigin = view;
+  for (const id of ['correspondences', 'dashboard', 'explorer', 'detail', 'comparison']) $(id).classList.toggle('hidden', id !== view);
   $('nav-dashboard').classList.toggle('nav-active', view === 'dashboard');
-  $('nav-explorer').classList.toggle('nav-active', view !== 'dashboard');
+  const parent = ['detail', 'comparison'].includes(view) ? state.listOrigin : view;
+  $('nav-explorer').classList.toggle('nav-active', parent === 'explorer');
+  $('nav-correspondences').classList.toggle('nav-active', parent === 'correspondences');
   window.scrollTo({top: 0, behavior: 'instant'});
 }
 
@@ -103,6 +111,7 @@ function distribution(targetId, items, key) {
 }
 
 async function loadRules() {
+  syncCatalogFilters();
   const params = new URLSearchParams(new FormData($('filters')));
   for (const [key, value] of [...params]) if (!String(value).trim()) params.delete(key);
   params.set('page', state.page); params.set('page_size', state.pageSize);
@@ -113,6 +122,10 @@ async function loadRules() {
   $('prev-page').disabled = data.page <= 1;
   $('next-page').disabled = data.page * state.pageSize >= data.total;
   const body = $('rules-body'); body.replaceChildren();
+  if (!data.items.length) {
+    const row = node('tr'); const cell = node('td', 'Aucune règle pour ces filtres. Réinitialisez-les pour retrouver le catalogue complet.');
+    cell.colSpan = 7; row.append(cell); body.append(row);
+  }
   data.items.forEach(rule => {
     const row = node('tr'); row.tabIndex = 0;
     const tag = node('span', rule.source, `tag ${rule.source.toLowerCase()}`);
@@ -125,8 +138,8 @@ async function loadRules() {
       uncertainty.append(node('div', `Faux positifs : ${levels[u.false_positive_risk]}`, 'small'), node('div', `Non-détection : ${levels[u.false_negative_risk]}`, 'small'));
     } else uncertainty.textContent = '—';
     row.append(uncertainty);
-    row.addEventListener('click', () => openRule(rule.rule_key));
-    row.addEventListener('keydown', event => {if (event.key === 'Enter') openRule(rule.rule_key);});
+    row.addEventListener('click', () => openRule(rule.rule_key).catch(handleError));
+    row.addEventListener('keydown', event => {if (event.key === 'Enter') openRule(rule.rule_key).catch(handleError);});
     body.append(row);
   });
 }
@@ -134,6 +147,7 @@ async function loadRules() {
 async function openRule(key) {
   const rule = await request(`/api/rule?${new URLSearchParams({key})}`);
   state.currentRule = rule;
+  $('back-to-explorer').textContent = state.listOrigin === 'correspondences' ? '← Retour aux correspondances CAST → Semgrep' : '← Retour à l’explorateur';
   $('detail-source').textContent = rule.source;
   $('detail-title').textContent = rule.title || rule.rule_id;
   $('detail-id').textContent = rule.rule_id;
@@ -186,20 +200,28 @@ async function openRule(key) {
   show('detail');
 }
 
-async function loadMatches(key) {
-  const data = await request(`/api/matches?${new URLSearchParams({key})}`);
-  const target = $('matches'); target.replaceChildren();
+async function loadMatches(key, offset = 0) {
+  const data = await request(`/api/matches?${new URLSearchParams({key, offset})}`);
+  const target = $('matches');
+  if (offset === 0) target.replaceChildren();
+  else target.querySelector('.load-more')?.remove();
   if (!data.items.length) target.append(node('p', 'Aucun candidat identifié pour cette règle.', 'muted'));
   data.items.forEach(match => {
     const block = node('div', '', 'match'); block.tabIndex = 0;
     block.append(node('strong', match.other_title || match.other_id));
-    block.append(node('div', `${match.other_id} · Score ${match.score}/100 · Avis : ${match.expert_decision || 'non revu'}`, 'match-meta'));
+    block.append(node('div', `${match.other_id} · Classement ${match.score}/100 · ${decisions[match.expert_decision] || 'Candidat automatique · à examiner'}`, 'match-meta'));
     block.append(node('div', `${match.evidence_count} références sourcées`, 'match-meta'));
-    const action = () => openMatch(match.cast_key, match.semgrep_key);
+    const action = () => openMatch(match.cast_key, match.semgrep_key).catch(handleError);
     block.addEventListener('click', action);
     block.addEventListener('keydown', event => {if (event.key === 'Enter') action();});
     target.append(block);
   });
+  const next = offset + data.items.length;
+  if (next < data.total) {
+    const more = node('button', `Afficher la suite (${next} sur ${data.total} paires)`, 'secondary load-more');
+    more.addEventListener('click', () => loadMatches(key, next).catch(handleError));
+    target.append(more);
+  }
 }
 
 function comparisonFields(target, rule) {
@@ -238,8 +260,10 @@ function uncertaintyFields(target, rule) {
 }
 
 async function openMatch(castKey, semgrepKey) {
+  if (state.view !== 'comparison') state.comparisonReturn = state.view;
   const data = await request(`/api/match?${new URLSearchParams({cast_key: castKey, semgrep_key: semgrepKey})}`);
   state.currentMatch = data;
+  $('back-to-detail').textContent = state.comparisonReturn === 'correspondences' ? '← Retour aux correspondances CAST → Semgrep' : '← Retour à la règle';
   const factors = data.candidate.factors;
   const score = $('comparison-score'); score.replaceChildren();
   score.append(node('strong', `Score de classement ${data.candidate.score}/100 · ${factors.method || 'méthode inconnue'}`));
@@ -272,7 +296,7 @@ async function openMatch(castKey, semgrepKey) {
   if (!data.expert_reviews.length) reviews.append(node('p', 'Aucun avis expert enregistré.', 'muted'));
   data.expert_reviews.forEach(item => {
     const block = node('div', '', 'review-item');
-    block.append(node('strong', `${item.decision} · ${item.reviewer}`));
+    block.append(node('strong', `${decisions[item.decision] || item.decision} · ${item.reviewer}`));
     block.append(node('div', item.created_at, 'small muted'));
     if (item.comment) block.append(node('p', item.comment));
     reviews.append(block);
@@ -280,12 +304,116 @@ async function openMatch(castKey, semgrepKey) {
   show('comparison');
 }
 
+function syncCatalogFilters() {
+  const source = $('filters').elements.source.value;
+  for (const label of document.querySelectorAll('.semgrep-filter')) {
+    const select = label.querySelector('select');
+    label.hidden = source !== 'Semgrep';
+    select.disabled = source !== 'Semgrep';
+    if (source !== 'Semgrep') select.value = '';
+  }
+  for (const [id, value] of [['catalog-cast', 'CAST'], ['catalog-semgrep', 'Semgrep'], ['catalog-all', '']]) {
+    $(id).setAttribute('aria-pressed', String(source === value));
+  }
+  $('catalog-context').textContent = source === 'CAST' ? 'Catalogue CAST. Ouvrez une règle pour consulter ses candidats Semgrep, ou utilisez la vue CAST → Semgrep.' :
+    source === 'Semgrep' ? 'Catalogue Semgrep. Les filtres d’incertitude s’appliquent à ces règles.' : 'Catalogues CAST et Semgrep. Sélectionnez Semgrep pour filtrer ses évaluations d’incertitude.';
+}
+
+async function openCatalog(source = 'CAST') {
+  $('filters').reset();
+  $('filters').elements.source.value = source;
+  state.page = 1;
+  await loadRules();
+  show('explorer');
+}
+
+async function returnToList() {
+  if (state.listOrigin === 'correspondences') {await loadCorrespondences(); show('correspondences');}
+  else {await loadRules(); show('explorer');}
+}
+
+async function loadCorrespondences() {
+  const params = new URLSearchParams(new FormData($('correspondence-filters')));
+  params.set('page', state.mappingPage); params.set('page_size', state.mappingPageSize);
+  const data = await request(`/api/correspondences?${params}`);
+  state.mappingTotal = data.total;
+  if (state.mappingPage > 1 && !data.items.length) {
+    state.mappingPage = Math.max(1, Math.ceil(data.total / state.mappingPageSize));
+    return loadCorrespondences();
+  }
+  const summary = data.summary;
+  const metrics = $('correspondence-metrics'); metrics.replaceChildren();
+  for (const [label, count, filter] of [
+    ['Règles CAST', summary.cast_count, ''], ['Avec candidats Semgrep', summary.with_candidates, 'with_candidates'],
+    ['Sans candidat identifié', summary.without_candidates, 'without_candidates'],
+    ['Avec avis expert « équivalent »', summary.with_expert_equivalent, 'expert_equivalent']
+  ]) {
+    const button = node('button', '', 'metric mapping-metric');
+    button.append(node('span', label), node('strong', Number(count).toLocaleString('fr-FR')));
+    button.addEventListener('click', () => {
+      $('correspondence-filters').elements.status.value = filter;
+      state.mappingPage = 1; loadCorrespondences().catch(handleError);
+    });
+    metrics.append(button);
+  }
+  $('correspondence-count').textContent = `${Number(data.total).toLocaleString('fr-FR')} règle${data.total === 1 ? '' : 's'} CAST · correspondances regroupées par règle`;
+  $('correspondence-page').textContent = `Page ${data.page} / ${Math.max(1, Math.ceil(data.total/state.mappingPageSize))}`;
+  $('correspondence-prev').disabled = data.page <= 1;
+  $('correspondence-next').disabled = data.page * state.mappingPageSize >= data.total;
+  const list = $('correspondence-list'); list.replaceChildren();
+  if (!data.items.length) list.append(node('p', 'Aucune règle CAST pour ces critères. Réinitialisez la recherche ou le filtre de correspondance.', 'empty-mapping'));
+  for (const cast of data.items) {
+    const row = node('article', '', 'mapping-row');
+    const left = node('div', '', 'mapping-cast');
+    left.append(node('span', `CAST ${cast.rule_id}`, 'source-tag cast'), node('h2', cast.title || cast.rule_id));
+    left.append(node('p', cast.languages.join(', ') || 'Langage non renseigné', 'small muted'));
+    if (cast.cwe.length) left.append(node('p', cast.cwe.join(', '), 'small muted'));
+    const open = node('button', cast.candidate_count ? `Ouvrir la règle et ses ${cast.candidate_count} paires` : 'Ouvrir la règle CAST', 'secondary');
+    open.addEventListener('click', () => openRule(cast.rule_key).catch(handleError));
+    left.append(open);
+    const right = node('div', '', 'mapping-semgrep');
+    if (!cast.matches.length) {
+      right.append(node('strong', 'Aucun candidat Semgrep identifié'), node('p', 'Vous pouvez ouvrir la règle CAST et ajouter une paire à examiner.', 'small muted'));
+    }
+    for (const match of cast.matches) {
+      const card = node('div', '', 'mapping-pair');
+      const title = node('button', match.title || match.rule_id, 'pair-title');
+      title.addEventListener('click', () => openMatch(cast.rule_key, match.semgrep_key).catch(handleError));
+      card.append(title);
+      card.append(node('p', `${match.rule_id} · ${match.languages.join(', ') || 'Langage non renseigné'}`, 'small mono muted'));
+      card.append(node('span', decisions[match.expert_decision] || 'Candidat automatique · à examiner', `decision ${match.expert_decision === 'equivalent' ? 'expert-equivalent' : ''}`));
+      card.append(node('p', `Classement ${match.score}/100 · Incertitude Semgrep : ${uncertaintyLevels[match.uncertainty_level] || 'Non évaluée'}`, 'small muted'));
+      const compare = node('button', 'Comparer CAST et Semgrep', 'secondary');
+      compare.addEventListener('click', () => openMatch(cast.rule_key, match.semgrep_key).catch(handleError));
+      card.append(compare); right.append(card);
+    }
+    if (cast.candidate_count > cast.matches.length) right.append(node('p', `${cast.matches.length} paires affichées sur ${cast.candidate_count}. Ouvrez la règle CAST pour toutes les consulter.`, 'small muted'));
+    row.append(left, right); list.append(row);
+  }
+}
+
 function handleError(error) { window.alert(error.message || String(error)); }
 
 $('nav-dashboard').addEventListener('click', () => {loadDashboard().then(() => show('dashboard')).catch(handleError);});
-$('nav-explorer').addEventListener('click', () => {loadRules().then(() => show('explorer')).catch(handleError);});
-$('back-to-explorer').addEventListener('click', () => {loadRules().then(() => show('explorer')).catch(handleError);});
-$('back-to-detail').addEventListener('click', () => show('detail'));
+$('nav-correspondences').addEventListener('click', () => {loadCorrespondences().then(() => show('correspondences')).catch(handleError);});
+$('nav-explorer').addEventListener('click', () => openCatalog('CAST').catch(handleError));
+$('back-to-explorer').addEventListener('click', () => returnToList().catch(handleError));
+$('back-to-detail').addEventListener('click', () => {
+  if (state.comparisonReturn === 'correspondences') loadCorrespondences().then(() => show('correspondences')).catch(handleError);
+  else if (state.currentRule) openRule(state.currentRule.rule_key).catch(handleError);
+  else returnToList().catch(handleError);
+});
+for (const [id, source] of [['catalog-cast', 'CAST'], ['catalog-semgrep', 'Semgrep'], ['catalog-all', '']]) {
+  $(id).addEventListener('click', () => openCatalog(source).catch(handleError));
+}
+$('filters').elements.source.addEventListener('change', () => {
+  openCatalog($('filters').elements.source.value).catch(handleError);
+});
+$('reset-catalog').addEventListener('click', () => openCatalog($('filters').elements.source.value).catch(handleError));
+$('correspondence-filters').addEventListener('submit', event => {event.preventDefault(); state.mappingPage = 1; loadCorrespondences().catch(handleError);});
+$('reset-correspondences').addEventListener('click', () => {$('correspondence-filters').reset(); state.mappingPage = 1; loadCorrespondences().catch(handleError);});
+$('correspondence-prev').addEventListener('click', () => {if (state.mappingPage > 1) {state.mappingPage--; loadCorrespondences().catch(handleError);}});
+$('correspondence-next').addEventListener('click', () => {if (state.mappingPage * state.mappingPageSize < state.mappingTotal) {state.mappingPage++; loadCorrespondences().catch(handleError);}});
 $('filters').addEventListener('submit', event => {event.preventDefault(); state.page = 1; loadRules().catch(handleError);});
 $('prev-page').addEventListener('click', () => {if (state.page > 1) {state.page--; loadRules().catch(handleError);}});
 $('next-page').addEventListener('click', () => {if (state.page * state.pageSize < state.total) {state.page++; loadRules().catch(handleError);}});
@@ -339,4 +467,4 @@ $('uncertainty-form').addEventListener('submit', async event => {
   finally {$('save-uncertainty').disabled = !state.currentRule.definition_hash || state.currentRule.status !== 'present';}
 });
 
-loadDashboard().catch(handleError);
+loadCorrespondences().catch(handleError);
