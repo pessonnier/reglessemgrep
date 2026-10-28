@@ -15,7 +15,7 @@ Montrer, pour chaque règle CAST, quelles règles Semgrep sont candidates ou ont
 - Les règles avec avis d’équivalence sont placées en tête, puis les autres règles avec candidats, puis les règles sans candidat. Au sein des aperçus, les paires équivalentes et partielles précèdent les autres candidats ; les avis négatifs sont conservés et identifiés.
 - Les compteurs et la pagination dénombrent des règles CAST. Un aperçu affiche au plus trois paires ; leur nombre total et l’accès à la fiche complète sont explicites.
 - La recherche accepte un identifiant/intitulé CAST ou Semgrep. Le filtre langage et le filtre CWE portent sur CAST.
-- L’explorateur ouvre CAST par défaut, avec accès direct à chaque catalogue et réinitialisation des filtres. Les filtres Semgrep sont masqués, désactivés et vidés quand cet éditeur n’est pas sélectionné.
+- L’explorateur ouvre CAST par défaut, avec sélection du catalogue par la liste déroulante « Éditeur » et réinitialisation des filtres. Les filtres Semgrep sont masqués, désactivés et vidés quand cet éditeur n’est pas sélectionné.
 - Après comparaison, le retour retrouve la liste d’origine et ses filtres.
 
 ## Recette
@@ -26,3 +26,9 @@ Montrer, pour chaque règle CAST, quelles règles Semgrep sont candidates ou ont
 4. Depuis les statistiques d’incertitude, ouvrir Semgrep puis choisir CAST : les règles CAST redeviennent visibles.
 5. Rechercher un identifiant Semgrep et retrouver les règles CAST liées.
 6. Les règles supprimées ne contribuent pas aux compteurs de paires actives ; seule la dernière décision experte détermine le filtre d’équivalence.
+
+## Liens permanents et exemples experts
+
+Le menu utilise des liens vers `/correspondances`, `/regles` et `/statistiques`. Un lien explicite dans l’explorateur permet de retrouver la page des règles CAST et de leurs candidats Semgrep. Les boutons CAST/Semgrep/Tous ont été supprimés au profit de l’unique liste « Éditeur ».
+
+Les deux formulaires experts permettent d’ajouter ou de retirer des blocs de code avant enregistrement. Après enregistrement, ces exemples font partie de l’avis historisé, avec type de cas, langage et résultat attendu. Leur contenu est rendu littéralement, même s’il contient du HTML ou du JavaScript. Les exemples sont des déclarations de l’expert, sans exécution automatique.

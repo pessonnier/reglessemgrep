@@ -32,3 +32,11 @@ La migration v3→v4 conserve les données et produit un état initial non éval
 `correspondences.py` et `GET /api/correspondences` regroupent les paires par règle CAST. Les règles sans candidat sont conservées. Seules les règles présentes des deux catalogues entrent dans les paires et compteurs ; la dernière décision experte détermine le filtre d’équivalence. La pagination porte sur les règles CAST, avec un aperçu de trois paires par règle. La fiche charge toutes les paires via `GET /api/matches?key=…&offset=…`.
 
 La navigation distingue la vue CAST → Semgrep, l’explorateur et les statistiques. Le retour d’une comparaison conserve la liste et les filtres d’origine. Les filtres d’incertitude sont réservés au catalogue Semgrep côté interface ; l’API ignore ces filtres si `source=CAST`, pour ne pas masquer CAST avec un filtre incompatible.
+
+## Exemples de code dans les avis (schéma v5)
+
+La migration `005_expert_code.sql` ajoute `code_examples_json` aux tables `expert_reviews` et `uncertainty_assessments`, avec une liste vide pour les avis existants. Le modèle d’API `CodeExample` valide le type de cas, la taille des champs et le code non vide. `code_examples` accepte au plus dix éléments par avis. Le code conserve son contenu exact. Les routes d’écriture enregistrent les exemples dans la même transaction que l’avis.
+
+Les fiches et comparaisons renvoient les exemples comme listes JSON. Une évaluation d’incertitude périmée conserve ses exemples dans l’historique ; ils ne sont pas exposés comme exemples de l’avis courant. L’interface construit des éléments `pre/code` avec `textContent`, sans interprétation HTML ni exécution.
+
+Les chemins `/correspondances`, `/regles` et `/statistiques` servent la même application locale, avec une vue initiale déterminée par l’URL. La navigation principale utilise des liens standards.

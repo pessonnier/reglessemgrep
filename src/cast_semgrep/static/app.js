@@ -28,6 +28,8 @@ async function request(url, options) {
 function show(view) {
   state.view = view;
   if (['correspondences', 'explorer'].includes(view)) state.listOrigin = view;
+  const path = {correspondences: '/correspondances', explorer: '/regles', dashboard: '/statistiques'}[view];
+  if (path && location.pathname !== path) history.replaceState(null, '', path);
   for (const id of ['correspondences', 'dashboard', 'explorer', 'detail', 'comparison']) $(id).classList.toggle('hidden', id !== view);
   $('nav-dashboard').classList.toggle('nav-active', view === 'dashboard');
   const parent = ['detail', 'comparison'].includes(view) ? state.listOrigin : view;
@@ -171,11 +173,13 @@ async function openRule(key) {
   if (rule.uncertainty) {
     uncertaintyFields(uncertainty, rule);
     $('uncertainty-form').reset();
+    $('uncertainty-examples-editor').replaceChildren();
     const u = rule.uncertainty;
     if (u.status === 'expert_assessed') {
       for (const key of ['uncertainty_level', 'false_positive_risk', 'false_negative_risk', 'scope', 'rationale', 'evidence']) {
         $('uncertainty-form').elements[key].value = u[key] || '';
       }
+      (u.code_examples || []).forEach(example => addCodeEditor('uncertainty-examples-editor', example));
     }
     $('save-uncertainty').disabled = !rule.definition_hash || rule.status !== 'present';
     $('uncertainty-form-status').textContent = rule.definition_hash ? '' : 'Réimportez les règles Semgrep locales pour identifier leur définition avant de les évaluer.';
@@ -191,6 +195,7 @@ async function openRule(key) {
       field(entry, 'Périmètre', item.scope);
       field(entry, 'Justification', item.rationale);
       field(entry, 'Références déclarées par l’expert', item.evidence);
+      renderCodeExamples(entry, item.code_examples);
       history.append(entry);
     });
   }
@@ -255,6 +260,7 @@ function uncertaintyFields(target, rule) {
   if (u.scope) field(target, 'Périmètre de l’avis', u.scope);
   if (u.reviewer) field(target, 'Auteur / date', `${u.reviewer} · ${u.created_at}`);
   if (u.evidence) field(target, 'Références déclarées par l’expert', u.evidence);
+  renderCodeExamples(target, u.code_examples);
   field(target, 'Confiance déclarée par Semgrep (métadonnée)', rule.source_confidence);
   target.append(node('p', 'La confiance déclarée par l’éditeur et les niveaux estimés ne sont pas des probabilités mesurées. Les tests de détection restent à mettre en place.', 'muted small'));
 }
@@ -262,6 +268,12 @@ function uncertaintyFields(target, rule) {
 async function openMatch(castKey, semgrepKey) {
   if (state.view !== 'comparison') state.comparisonReturn = state.view;
   const data = await request(`/api/match?${new URLSearchParams({cast_key: castKey, semgrep_key: semgrepKey})}`);
+  const previous = state.currentMatch;
+  if (!previous || previous.cast.rule_key !== castKey || previous.semgrep.rule_key !== semgrepKey) {
+    $('review-form').reset();
+    $('review-examples-editor').replaceChildren();
+    $('review-status').textContent = '';
+  }
   state.currentMatch = data;
   $('back-to-detail').textContent = state.comparisonReturn === 'correspondences' ? '← Retour aux correspondances CAST → Semgrep' : '← Retour à la règle';
   const factors = data.candidate.factors;
@@ -299,6 +311,7 @@ async function openMatch(castKey, semgrepKey) {
     block.append(node('strong', `${decisions[item.decision] || item.decision} · ${item.reviewer}`));
     block.append(node('div', item.created_at, 'small muted'));
     if (item.comment) block.append(node('p', item.comment));
+    renderCodeExamples(block, item.code_examples);
     reviews.append(block);
   });
   show('comparison');
@@ -311,9 +324,6 @@ function syncCatalogFilters() {
     label.hidden = source !== 'Semgrep';
     select.disabled = source !== 'Semgrep';
     if (source !== 'Semgrep') select.value = '';
-  }
-  for (const [id, value] of [['catalog-cast', 'CAST'], ['catalog-semgrep', 'Semgrep'], ['catalog-all', '']]) {
-    $(id).setAttribute('aria-pressed', String(source === value));
   }
   $('catalog-context').textContent = source === 'CAST' ? 'Catalogue CAST. Ouvrez une règle pour consulter ses candidats Semgrep, ou utilisez la vue CAST → Semgrep.' :
     source === 'Semgrep' ? 'Catalogue Semgrep. Les filtres d’incertitude s’appliquent à ces règles.' : 'Catalogues CAST et Semgrep. Sélectionnez Semgrep pour filtrer ses évaluations d’incertitude.';
@@ -392,20 +402,69 @@ async function loadCorrespondences() {
   }
 }
 
+const exampleKinds = {vulnerable: 'Vulnérable / non conforme', safe: 'Corrigé / conforme', boundary: 'Cas limite', other: 'Autre exemple'};
+
+function addCodeEditor(containerId, example = {}) {
+  const container = $(containerId);
+  if (container.children.length >= 10) {handleError(new Error('Maximum 10 exemples par avis.')); return;}
+  const block = node('fieldset', '', 'code-editor');
+  block.append(node('legend', 'Exemple de code'));
+  for (const [key, labelText, tag, max] of [
+    ['title', 'Titre de l’exemple', 'input', 160], ['language', 'Langage', 'input', 80],
+    ['kind', 'Type de cas', 'select', 0], ['code', 'Code', 'textarea', 20000],
+    ['explanation', 'Résultat attendu et justification', 'textarea', 3000]
+  ]) {
+    const label = node('label', labelText);
+    const input = node(tag, null);
+    input.dataset.field = key;
+    if (max) input.maxLength = max;
+    if (key === 'kind') {
+      for (const [value, text] of Object.entries(exampleKinds)) {
+        const option = node('option', text); option.value = value; input.append(option);
+      }
+    }
+    if (key === 'code') {input.required = true; input.rows = 9; input.spellcheck = false; input.className = 'code-input';}
+    if (key === 'explanation') input.rows = 3;
+    input.value = example[key] || (key === 'kind' ? 'other' : '');
+    label.append(input); block.append(label);
+  }
+  const remove = node('button', 'Retirer cet exemple', 'secondary'); remove.type = 'button';
+  remove.addEventListener('click', () => block.remove());
+  block.append(remove); container.append(block);
+}
+
+function readCodeExamples(containerId) {
+  return [...$(containerId).children].map(block => Object.fromEntries(
+    [...block.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.value])
+  ));
+}
+
+function renderCodeExamples(target, examples = []) {
+  if (!examples.length) return;
+  const section = node('div', '', 'code-examples');
+  section.append(node('h3', 'Exemples de code de l’expert'));
+  section.append(node('p', 'Illustrations déclarées par l’expert · non exécutées', 'small muted'));
+  examples.forEach((example, index) => {
+    const block = node('section', '', 'code-example');
+    block.append(node('h4', example.title || `Exemple ${index + 1}`));
+    block.append(node('p', `${exampleKinds[example.kind] || 'Autre exemple'} · ${example.language || 'Langage non précisé'}`, 'small muted'));
+    const pre = node('pre', null); pre.append(node('code', example.code)); block.append(pre);
+    if (example.explanation) block.append(node('p', example.explanation));
+    section.append(block);
+  });
+  target.append(section);
+}
+
 function handleError(error) { window.alert(error.message || String(error)); }
 
-$('nav-dashboard').addEventListener('click', () => {loadDashboard().then(() => show('dashboard')).catch(handleError);});
-$('nav-correspondences').addEventListener('click', () => {loadCorrespondences().then(() => show('correspondences')).catch(handleError);});
-$('nav-explorer').addEventListener('click', () => openCatalog('CAST').catch(handleError));
 $('back-to-explorer').addEventListener('click', () => returnToList().catch(handleError));
 $('back-to-detail').addEventListener('click', () => {
   if (state.comparisonReturn === 'correspondences') loadCorrespondences().then(() => show('correspondences')).catch(handleError);
   else if (state.currentRule) openRule(state.currentRule.rule_key).catch(handleError);
   else returnToList().catch(handleError);
 });
-for (const [id, source] of [['catalog-cast', 'CAST'], ['catalog-semgrep', 'Semgrep'], ['catalog-all', '']]) {
-  $(id).addEventListener('click', () => openCatalog(source).catch(handleError));
-}
+$('add-review-example').addEventListener('click', () => addCodeEditor('review-examples-editor'));
+$('add-uncertainty-example').addEventListener('click', () => addCodeEditor('uncertainty-examples-editor'));
 $('filters').elements.source.addEventListener('change', () => {
   openCatalog($('filters').elements.source.value).catch(handleError);
 });
@@ -440,16 +499,21 @@ $('add-pair').addEventListener('click', async () => {
 });
 $('review-form').addEventListener('submit', async event => {
   event.preventDefault();
+  $('save-review').disabled = true;
   try {
     const form = new FormData(event.target);
     const data = state.currentMatch;
     await request('/api/reviews', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
       cast_key: data.cast.rule_key, semgrep_key: data.semgrep.rule_key,
-      reviewer: form.get('reviewer'), decision: form.get('decision'), comment: form.get('comment')
+      reviewer: form.get('reviewer'), decision: form.get('decision'), comment: form.get('comment'),
+      code_examples: readCodeExamples('review-examples-editor')
     })});
     event.target.reset();
+    $('review-examples-editor').replaceChildren();
     await openMatch(data.cast.rule_key, data.semgrep.rule_key);
+    $('review-status').textContent = 'Avis et exemples de code enregistrés.';
   } catch (error) {handleError(error);}
+  finally {$('save-review').disabled = false;}
 });
 
 $('uncertainty-form').addEventListener('submit', async event => {
@@ -459,6 +523,7 @@ $('uncertainty-form').addEventListener('submit', async event => {
   $('save-uncertainty').disabled = true;
   try {
     const payload = Object.fromEntries(new FormData(form));
+    payload.code_examples = readCodeExamples('uncertainty-examples-editor');
     Object.assign(payload, {rule_key: rule.rule_key, source_version: rule.source_version, definition_hash: rule.definition_hash});
     await request('/api/uncertainty-assessments', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     await openRule(rule.rule_key);
@@ -467,4 +532,6 @@ $('uncertainty-form').addEventListener('submit', async event => {
   finally {$('save-uncertainty').disabled = !state.currentRule.definition_hash || state.currentRule.status !== 'present';}
 });
 
-loadCorrespondences().catch(handleError);
+if (location.pathname === '/regles') openCatalog('CAST').catch(handleError);
+else if (location.pathname === '/statistiques') loadDashboard().then(() => show('dashboard')).catch(handleError);
+else loadCorrespondences().then(() => show('correspondences')).catch(handleError);

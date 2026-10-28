@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CAST · Semgrep — comparateur de règles</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script defer src="/static/app.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=5-expert-code">
+  <script defer src="/static/app.js?v=5-expert-code"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">C:S</span><div><strong>CAST · Semgrep</strong><small>Comparateur de règles</small></div></div>
-    <nav><button id="nav-correspondences" class="nav-active">CAST → Semgrep</button><button id="nav-explorer">Explorer les règles</button><button id="nav-dashboard">Inventaires et statistiques</button></nav>
+    <nav><a id="nav-correspondences" class="nav-active" href="/correspondances">CAST → Semgrep</a><a id="nav-explorer" href="/regles">Explorer les règles</a><a id="nav-dashboard" href="/statistiques">Inventaires et statistiques</a></nav>
   </header>
   <main>
     <section id="correspondences" class="view">
@@ -40,7 +40,7 @@
 
     <section id="explorer" class="view hidden">
       <div class="section-heading"><div><p class="eyebrow">Catalogue</p><h1>Explorer les règles</h1></div><div class="exports"><a href="/api/export/rules.csv">Exporter les règles CSV</a><a href="/api/export/matches.csv">Exporter les rapprochements CSV</a></div></div>
-      <div class="catalog-switch"><button type="button" id="catalog-cast">Règles CAST</button><button type="button" id="catalog-semgrep">Règles Semgrep</button><button type="button" id="catalog-all">Tous les éditeurs</button></div>
+      <p><a href="/correspondances">Voir les règles CAST et leurs correspondances Semgrep →</a></p>
       <form id="filters" class="filters">
         <label>Recherche <input name="q" type="search" placeholder="Identifiant, titre, description"></label>
         <label>Éditeur <select name="source"><option value="">Tous</option><option selected>CAST</option><option>Semgrep</option></select></label>
@@ -75,6 +75,7 @@
             <label class="wide">Périmètre évalué <textarea name="scope" required maxlength="2000" rows="2" placeholder="Langage, framework, moteur/version, cas couverts et exclusions"></textarea></label>
             <label class="wide">Justification et limites <textarea name="rationale" required maxlength="5000" rows="3" placeholder="Justifier les trois niveaux ; préciser les hypothèses et les détections manquantes possibles"></textarea></label>
             <label class="wide">Références / résultats consultés <textarea name="evidence" maxlength="5000" rows="2" placeholder="URLs, identifiants de cas ou chemins de rapports. Ces références sont déclarées par l’expert."></textarea></label>
+            <div class="wide"><h3>Exemples de code</h3><p class="muted small">Exemples déclarés par l’expert, conservés avec cet avis. Ils ne sont pas exécutés.</p><div id="uncertainty-examples-editor"></div><button type="button" id="add-uncertainty-example" class="secondary">Ajouter un exemple de code</button></div>
             <button class="primary" id="save-uncertainty">Enregistrer l’évaluation</button>
             <p id="uncertainty-form-status" role="status" class="muted small"></p>
           </form>
@@ -87,7 +88,7 @@
       <button id="back-to-detail" class="text-button">← Retour à la règle</button><p class="eyebrow">Comparaison</p><h1>Rapprochement proposé</h1>
       <div id="comparison-score" class="score-banner"></div>
       <div class="comparison-columns"><section class="panel"><p class="source-tag cast">CAST</p><h2 id="compare-cast-title"></h2><div id="compare-cast"></div></section><section class="panel"><p class="source-tag semgrep">Semgrep</p><h2 id="compare-semgrep-title"></h2><div id="compare-semgrep"></div></section></div>
-      <div class="three-columns"><section class="panel"><h2>Références sourcées</h2><p class="muted small">Champs et liens des catalogues originaux.</p><div id="evidence"></div></section><section class="panel"><h2>Propositions LLM</h2><p class="muted small">Analyse automatique facultative, distincte des sources.</p><div id="llm-proposals"></div></section><section class="panel"><h2>Avis de l’expert</h2><p class="muted small">Décision humaine historisée.</p><div id="expert-reviews"></div><form id="review-form"><label>Votre nom <input name="reviewer" required maxlength="120"></label><label>Décision <select name="decision"><option value="indeterminate">Indéterminé</option><option value="equivalent">Équivalent</option><option value="partial">Partiellement équivalent</option><option value="complementary">Complémentaire</option><option value="related">Apparenté</option><option value="no_match">Sans correspondance identifiée</option><option value="not_comparable">Non comparable</option></select></label><label>Justification <textarea name="comment" rows="4" maxlength="5000"></textarea></label><button class="primary">Enregistrer l’avis</button></form></section></div>
+      <div class="three-columns"><section class="panel"><h2>Références sourcées</h2><p class="muted small">Champs et liens des catalogues originaux.</p><div id="evidence"></div></section><section class="panel"><h2>Propositions LLM</h2><p class="muted small">Analyse automatique facultative, distincte des sources.</p><div id="llm-proposals"></div></section><section class="panel"><h2>Avis de l’expert</h2><p class="muted small">Décision humaine historisée.</p><div id="expert-reviews"></div><form id="review-form"><label>Votre nom <input name="reviewer" required maxlength="120"></label><label>Décision <select name="decision"><option value="indeterminate">Indéterminé</option><option value="equivalent">Équivalent</option><option value="partial">Partiellement équivalent</option><option value="complementary">Complémentaire</option><option value="related">Apparenté</option><option value="no_match">Sans correspondance identifiée</option><option value="not_comparable">Non comparable</option></select></label><label>Justification <textarea name="comment" rows="4" maxlength="5000"></textarea></label><div class="review-code-input"><h3>Exemples de code</h3><p class="muted small">Ajoutez un cas vulnérable, corrigé ou limite pour étayer votre avis. Le code est archivé avec l’évaluation et n’est pas exécuté.</p><div id="review-examples-editor"></div><button type="button" id="add-review-example" class="secondary">Ajouter un exemple de code</button></div><button class="primary" id="save-review">Enregistrer l’avis</button><p id="review-status" role="status" class="small muted"></p></form></section></div>
     </section>
   </main>
   <footer>Inventaires datés et locaux · Les contenus détaillés restent dans l’archive locale.</footer>

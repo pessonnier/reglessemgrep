@@ -156,7 +156,7 @@ class UncertaintyTests(unittest.TestCase):
             conn.execute("INSERT INTO rules(rule_key,source,rule_id,source_url,source_version,raw_path,collected_at,snapshot_id) VALUES('Semgrep:old','Semgrep','old','https://example.invalid','old','/tmp/old','2026-01-01',1)")
             initialize(conn)
             initialize(conn)
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 5)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM rules").fetchone()[0], 1)
             self.assertEqual(conn.execute("SELECT status FROM rule_uncertainty").fetchone()[0], "not_evaluated")
 

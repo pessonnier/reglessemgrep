@@ -76,4 +76,12 @@ L’accueil affiche les règles CAST et leurs candidats Semgrep côte à côte. 
 
 La recherche porte sur l’identifiant/intitulé CAST ou Semgrep (et la description CAST). Les filtres permettent de consulter les règles avec candidats, sans candidat identifié ou avec un avis expert d’équivalence. Les compteurs dénombrent des règles CAST, pas des paires, et précèdent le filtre de correspondance. L’absence de candidat ne démontre pas une absence de couverture.
 
-L’explorateur général s’ouvre sur CAST ; ses boutons donnent un accès direct à CAST, Semgrep ou aux deux catalogues. Les filtres d’incertitude sont visibles uniquement pour Semgrep et sont effacés lors d’un changement d’éditeur. Le bouton Réinitialiser permet de retrouver le catalogue complet de l’éditeur sélectionné.
+L’explorateur général s’ouvre sur CAST ; la liste déroulante « Éditeur » sélectionne CAST, Semgrep ou les deux catalogues. Les filtres d’incertitude sont visibles uniquement pour Semgrep et sont effacés lors d’un changement d’éditeur. Le bouton Réinitialiser permet de retrouver le catalogue complet de l’éditeur sélectionné.
+
+## Pages et exemples de code des experts
+
+Le menu et le lien de l’explorateur ouvrent la page [CAST → Semgrep](http://127.0.0.1:8000/correspondances). Les chemins `/correspondances`, `/regles` et `/statistiques` sont accessibles directement et peuvent être enregistrés dans les favoris (adapter le port au serveur lancé).
+
+Dans un avis expert sur une paire, ou dans une évaluation d’incertitude Semgrep, cliquer sur **Ajouter un exemple de code**. Chaque exemple possède un titre facultatif, un langage, un type (vulnérable, corrigé, limite ou autre), le code et une explication du résultat attendu. Jusqu’à 10 exemples de 20 000 caractères chacun peuvent accompagner un avis. Les retours à la ligne et l’indentation sont conservés.
+
+Le code est stocké dans SQLite avec l’avis et reste consultable dans l’historique. Il est affiché comme texte et n’est jamais exécuté. Ces illustrations ne constituent pas des résultats d’analyse ni le corpus de validation automatisé prévu en S6.2. La migration v5 ajoute ce stockage en conservant les avis existants.

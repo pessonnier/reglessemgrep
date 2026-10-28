@@ -59,7 +59,11 @@ def initialize(conn: sqlite3.Connection) -> None:
         conn.executescript((MIGRATIONS / "004_uncertainty.sql").read_text(encoding="utf-8"))
         conn.execute("PRAGMA user_version = 4")
         version = 4
-    if version != 4:
+    if version == 4:
+        conn.executescript((MIGRATIONS / "005_expert_code.sql").read_text(encoding="utf-8"))
+        conn.execute("PRAGMA user_version = 5")
+        version = 5
+    if version != 5:
         raise RuntimeError(f"Unsupported database schema version: {version}")
 
 

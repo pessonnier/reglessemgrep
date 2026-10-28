@@ -26,6 +26,9 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @app.get("/", include_in_schema=False)
+@app.get("/correspondances", include_in_schema=False)
+@app.get("/regles", include_in_schema=False)
+@app.get("/statistiques", include_in_schema=False)
 def homepage():
     return FileResponse(static_dir / "index.html")
 
@@ -143,7 +146,7 @@ def get_rule(key: str):
         if row is None:
             raise HTTPException(404, "Rule not found")
         result = rules_with_uncertainty(conn, [row])[0]
-        result["uncertainty_history"] = [dict(x) for x in conn.execute(
+        result["uncertainty_history"] = [decode_expert_record(x) for x in conn.execute(
             "SELECT * FROM uncertainty_assessments WHERE rule_key=? ORDER BY id DESC", (key,)
         )]
     raw_path = Path(result["raw_path"])
@@ -197,7 +200,7 @@ def get_match(cast_key: str, semgrep_key: str):
         llm = [dict(x) for x in conn.execute(
             "SELECT * FROM llm_proposals WHERE cast_key=? AND semgrep_key=? ORDER BY id DESC", pair
         )]
-        reviews = [dict(x) for x in conn.execute(
+        reviews = [decode_expert_record(x) for x in conn.execute(
             "SELECT * FROM expert_reviews WHERE cast_key=? AND semgrep_key=? ORDER BY id DESC", pair
         )]
         cast_result, semgrep_result = rules_with_uncertainty(conn, [cast, semgrep])
@@ -212,6 +215,28 @@ def get_match(cast_key: str, semgrep_key: str):
 RiskLevel = Literal["unknown", "low", "medium", "high"]
 
 
+class CodeExample(BaseModel):
+    title: str = Field(default="", max_length=160)
+    language: str = Field(default="", max_length=80)
+    kind: Literal["vulnerable", "safe", "boundary", "other"] = "other"
+    code: str = Field(min_length=1, max_length=20000)
+    explanation: str = Field(default="", max_length=3000)
+
+    @field_validator("code")
+    @classmethod
+    def non_blank_code(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("L’exemple de code ne peut pas être vide.")
+        # Whitespace is meaningful in code: never strip or rewrite it.
+        return value
+
+
+def decode_expert_record(row) -> dict:
+    result = dict(row)
+    result["code_examples"] = json.loads(result.pop("code_examples_json", "[]"))
+    return result
+
+
 class UncertaintyInput(BaseModel):
     rule_key: str
     source_version: str = Field(min_length=1)
@@ -223,6 +248,7 @@ class UncertaintyInput(BaseModel):
     scope: str = Field(min_length=1, max_length=2000)
     rationale: str = Field(min_length=1, max_length=5000)
     evidence: str = Field(default="", max_length=5000)
+    code_examples: list[CodeExample] = Field(default_factory=list, max_length=10)
 
     @field_validator("reviewer", "scope", "rationale")
     @classmethod
@@ -246,11 +272,12 @@ def add_uncertainty_assessment(payload: UncertaintyInput):
         if rule["status"] != "present" or rule["source_version"] != payload.source_version or rule["definition_hash"] != payload.definition_hash:
             raise HTTPException(409, "La règle a changé. Réimportez si nécessaire et rechargez sa fiche avant l’évaluation.")
         data = payload.model_dump()
+        data["code_examples_json"] = json.dumps(data.pop("code_examples"), ensure_ascii=False)
         data["created_at"] = utc_now()
         columns = ','.join(data)
         markers = ','.join('?' for _ in data)
         cursor = conn.execute(f"INSERT INTO uncertainty_assessments({columns}) VALUES({markers})", tuple(data.values()))
-        return dict(conn.execute("SELECT * FROM uncertainty_assessments WHERE id=?", (cursor.lastrowid,)).fetchone())
+        return decode_expert_record(conn.execute("SELECT * FROM uncertainty_assessments WHERE id=?", (cursor.lastrowid,)).fetchone())
 
 
 class ReviewInput(BaseModel):
@@ -259,6 +286,14 @@ class ReviewInput(BaseModel):
     reviewer: str = Field(min_length=1, max_length=120)
     decision: str
     comment: str = Field(default="", max_length=5000)
+    code_examples: list[CodeExample] = Field(default_factory=list, max_length=10)
+
+    @field_validator("reviewer")
+    @classmethod
+    def non_blank_reviewer(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Le nom ne peut pas être vide.")
+        return value.strip()
 
 
 DECISIONS = {"equivalent", "partial", "complementary", "related", "no_match", "indeterminate", "not_comparable"}
@@ -275,11 +310,12 @@ def add_review(payload: ReviewInput):
         if not exists:
             raise HTTPException(404, "Comparison not found")
         cursor = conn.execute(
-            "INSERT INTO expert_reviews(cast_key,semgrep_key,reviewer,decision,comment,created_at) VALUES(?,?,?,?,?,?)",
-            (*pair, payload.reviewer.strip(), payload.decision, payload.comment.strip(), utc_now()),
+            "INSERT INTO expert_reviews(cast_key,semgrep_key,reviewer,decision,comment,created_at,code_examples_json) VALUES(?,?,?,?,?,?,?)",
+            (*pair, payload.reviewer, payload.decision, payload.comment.strip(), utc_now(),
+             json.dumps([example.model_dump() for example in payload.code_examples], ensure_ascii=False)),
         )
         review = conn.execute("SELECT * FROM expert_reviews WHERE id=?", (cursor.lastrowid,)).fetchone()
-    return dict(review)
+    return decode_expert_record(review)
 
 
 class ManualCandidateInput(BaseModel):
