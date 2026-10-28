@@ -16,6 +16,7 @@
     <section id="dashboard" class="view">
       <div class="intro"><p class="eyebrow">Inventaires locaux</p><h1>Comparer les catalogues avec des preuves vérifiables</h1><p>Les propositions automatiques classent les pistes de recherche. Seul l’avis de l’expert confirme une correspondance.</p></div>
       <div id="metrics" class="metrics"></div>
+      <section class="panel uncertainty-overview"><h2>Incertitude des règles Semgrep</h2><p class="muted small">L’incertitude mesure les limites de l’évaluation. Les risques de faux positifs et de non-détection sont renseignés séparément. Sans évaluation, l’incertitude est élevée et les risques sont non évalués.</p><div id="uncertainty-summary"></div></section>
       <div class="dashboard-grid"><section class="panel"><h2>Derniers imports</h2><div id="snapshots"></div></section><section class="panel"><h2>Répartition par catégorie</h2><div id="categories"></div></section><section class="panel"><h2>Langages</h2><div id="languages"></div></section><section class="panel"><h2>Sévérités</h2><div id="severities"></div></section></div>
     </section>
 
@@ -28,14 +29,37 @@
         <label>Catégorie <input name="category" placeholder="ex. security"></label>
         <label>CWE <input name="cwe" placeholder="ex. CWE-89"></label>
         <label>Sévérité <input name="severity" placeholder="ex. WARNING"></label>
+        <label>Incertitude Semgrep <select name="uncertainty_level"><option value="">Toutes</option><option value="high">Élevée</option><option value="medium">Moyenne</option><option value="low">Faible</option><option value="unknown">Non évaluée</option></select></label>
+        <label>Évaluation Semgrep <select name="assessment_status"><option value="">Toutes</option><option value="not_evaluated">À évaluer</option><option value="stale">À réévaluer</option><option value="expert_assessed">Avis expert enregistré</option></select></label>
+        <label>Risque de faux positifs <select name="false_positive_risk"><option value="">Tous</option><option value="unknown">Non évalué</option><option value="high">Élevé</option><option value="medium">Moyen</option><option value="low">Faible</option></select></label>
+        <label>Risque de non-détection <select name="false_negative_risk"><option value="">Tous</option><option value="unknown">Non évalué</option><option value="high">Élevé</option><option value="medium">Moyen</option><option value="low">Faible</option></select></label>
         <button type="submit" class="primary">Rechercher</button>
       </form>
-      <div class="panel table-panel"><div class="table-toolbar"><span id="result-count"></span><div><button id="prev-page" type="button">Précédent</button><span id="page-label"></span><button id="next-page" type="button">Suivant</button></div></div><div class="table-scroll"><table><thead><tr><th>Éditeur</th><th>ID</th><th>Intitulé</th><th>Langages</th><th>Catégorie</th><th>Sévérité</th></tr></thead><tbody id="rules-body"></tbody></table></div></div>
+      <div class="panel table-panel"><div class="table-toolbar"><span id="result-count"></span><div><button id="prev-page" type="button">Précédent</button><span id="page-label"></span><button id="next-page" type="button">Suivant</button></div></div><div class="table-scroll"><table><thead><tr><th>Éditeur</th><th>ID</th><th>Intitulé</th><th>Langages</th><th>Catégorie</th><th>Sévérité</th><th>Incertitude / risques Semgrep</th></tr></thead><tbody id="rules-body"></tbody></table></div></div>
     </section>
 
     <section id="detail" class="view hidden">
       <div class="section-heading"><div><button id="back-to-explorer" class="text-button">← Retour à l’explorateur</button><p class="eyebrow" id="detail-source"></p><h1 id="detail-title"></h1><p id="detail-id" class="mono muted"></p></div><a id="detail-url" class="source-link" target="_blank" rel="noopener noreferrer">Documentation originale ↗</a></div>
       <div class="detail-grid"><section class="panel"><h2>Règle</h2><div id="detail-fields"></div><details><summary>Contenu archivé</summary><pre id="raw-content"></pre></details></section><section class="panel"><h2>Correspondances candidates</h2><p class="muted small">Score de classement, pas une preuve d’équivalence.</p><div id="matches"></div><div class="manual-pair"><h3>Ajouter une paire à examiner</h3><input id="other-query" placeholder="Rechercher une règle de l’autre éditeur"><button id="other-search">Chercher</button><select id="other-results"></select><button id="add-pair" class="primary">Ajouter</button></div></section></div>
+      <section id="uncertainty-panel" class="panel uncertainty-panel" hidden>
+        <h2>Incertitude et risques de détection</h2>
+        <div id="uncertainty-detail"></div>
+        <details><summary>Enregistrer une évaluation experte de cette règle</summary>
+          <p class="muted small">Cet avis qualifie une règle Semgrep dans un périmètre précis. Il ne valide pas à lui seul une correspondance CAST. Aucun taux mesuré n’est calculé sans corpus de tests.</p>
+          <form id="uncertainty-form">
+            <label>Votre nom <input name="reviewer" required maxlength="120"></label>
+            <label>Incertitude de l’évaluation <select name="uncertainty_level"><option value="high">Élevée</option><option value="medium">Moyenne</option><option value="low">Faible</option><option value="unknown">Non évaluée</option></select></label>
+            <label>Risque estimé de faux positifs <select name="false_positive_risk"><option value="unknown">Non évalué</option><option value="low">Faible</option><option value="medium">Moyen</option><option value="high">Élevé</option></select></label>
+            <label>Risque estimé de non-détection <select name="false_negative_risk"><option value="unknown">Non évalué</option><option value="low">Faible</option><option value="medium">Moyen</option><option value="high">Élevé</option></select></label>
+            <label class="wide">Périmètre évalué <textarea name="scope" required maxlength="2000" rows="2" placeholder="Langage, framework, moteur/version, cas couverts et exclusions"></textarea></label>
+            <label class="wide">Justification et limites <textarea name="rationale" required maxlength="5000" rows="3" placeholder="Justifier les trois niveaux ; préciser les hypothèses et les détections manquantes possibles"></textarea></label>
+            <label class="wide">Références / résultats consultés <textarea name="evidence" maxlength="5000" rows="2" placeholder="URLs, identifiants de cas ou chemins de rapports. Ces références sont déclarées par l’expert."></textarea></label>
+            <button class="primary" id="save-uncertainty">Enregistrer l’évaluation</button>
+            <p id="uncertainty-form-status" role="status" class="muted small"></p>
+          </form>
+        </details>
+        <details><summary>Historique des évaluations</summary><div id="uncertainty-history"></div></details>
+      </section>
     </section>
 
     <section id="comparison" class="view hidden">

@@ -1,5 +1,8 @@
 const $ = (id) => document.getElementById(id);
 const state = {page: 1, pageSize: 30, total: 0, currentRule: null, currentMatch: null};
+const levels = {unknown: 'Non évalué', low: 'Faible', medium: 'Moyen', high: 'Élevé'};
+const uncertaintyLevels = {unknown: 'Non évaluée', low: 'Faible', medium: 'Moyenne', high: 'Élevée'};
+const assessmentStatuses = {not_evaluated: 'À évaluer', stale: 'À réévaluer', expert_assessed: 'Avis expert enregistré'};
 
 function node(tag, text = '', className = '') {
   const element = document.createElement(tag);
@@ -12,7 +15,7 @@ async function request(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
-    try { const body = await response.json(); message = body.detail || message; } catch (_) {}
+    try { const body = await response.json(); message = Array.isArray(body.detail) ? body.detail.map(item => `${item.loc?.slice(1).join('.') || 'Champ'} : ${item.msg}`).join('\n') : body.detail || message; } catch (_) {}
     throw new Error(message);
   }
   return response.json();
@@ -61,6 +64,19 @@ async function loadDashboard() {
   distribution('categories', data.categories, 'category');
   distribution('languages', data.languages, 'language');
   distribution('severities', data.severities, 'severity');
+  const uncertainty = $('uncertainty-summary'); uncertainty.replaceChildren();
+  data.uncertainty.forEach(item => {
+    const button = node('button', `${assessmentStatuses[item.status]} · incertitude ${uncertaintyLevels[item.uncertainty_level].toLowerCase()} : ${item.count}`, 'uncertainty-filter');
+    button.addEventListener('click', () => {
+      $('filters').reset();
+      $('filters').elements.source.value = 'Semgrep';
+      $('filters').elements.assessment_status.value = item.status;
+      $('filters').elements.uncertainty_level.value = item.uncertainty_level;
+      state.page = 1;
+      loadRules().then(() => show('explorer')).catch(handleError);
+    });
+    uncertainty.append(button);
+  });
 }
 
 function distribution(targetId, items, key) {
@@ -102,6 +118,13 @@ async function loadRules() {
     const tag = node('span', rule.source, `tag ${rule.source.toLowerCase()}`);
     const source = node('td'); source.append(tag); row.append(source);
     for (const value of [rule.rule_id, rule.title || '—', rule.languages.join(', ') || '—', rule.categories.join(', ') || '—', rule.severity || '—']) row.append(node('td', value));
+    const uncertainty = node('td', '', 'uncertainty-cell');
+    const u = rule.uncertainty;
+    if (u) {
+      uncertainty.append(node('strong', uncertaintyLevels[u.uncertainty_level]), node('div', assessmentStatuses[u.status], 'small muted'));
+      uncertainty.append(node('div', `Faux positifs : ${levels[u.false_positive_risk]}`, 'small'), node('div', `Non-détection : ${levels[u.false_negative_risk]}`, 'small'));
+    } else uncertainty.textContent = '—';
+    row.append(uncertainty);
     row.addEventListener('click', () => openRule(rule.rule_key));
     row.addEventListener('keydown', event => {if (event.key === 'Enter') openRule(rule.rule_key);});
     body.append(row);
@@ -129,6 +152,34 @@ async function openRule(key) {
   field(fields, 'Autres référentiels', rule.standards);
   field(fields, 'Mode d’analyse documenté', rule.detection_method);
   field(fields, 'Version source', rule.source_version);
+  $('uncertainty-panel').hidden = rule.source !== 'Semgrep';
+  const uncertainty = $('uncertainty-detail'); uncertainty.replaceChildren();
+  if (rule.uncertainty) {
+    uncertaintyFields(uncertainty, rule);
+    $('uncertainty-form').reset();
+    const u = rule.uncertainty;
+    if (u.status === 'expert_assessed') {
+      for (const key of ['uncertainty_level', 'false_positive_risk', 'false_negative_risk', 'scope', 'rationale', 'evidence']) {
+        $('uncertainty-form').elements[key].value = u[key] || '';
+      }
+    }
+    $('save-uncertainty').disabled = !rule.definition_hash || rule.status !== 'present';
+    $('uncertainty-form-status').textContent = rule.definition_hash ? '' : 'Réimportez les règles Semgrep locales pour identifier leur définition avant de les évaluer.';
+    const history = $('uncertainty-history'); history.replaceChildren();
+    if (!rule.uncertainty_history.length) history.append(node('p', 'Aucune évaluation enregistrée.', 'muted'));
+    rule.uncertainty_history.forEach(item => {
+      const entry = node('div', '', 'review-item');
+      entry.append(node('strong', `${item.reviewer} · ${item.created_at}`));
+      field(entry, 'Version évaluée', item.source_version);
+      field(entry, 'Empreinte de la définition', item.definition_hash);
+      field(entry, 'Incertitude', uncertaintyLevels[item.uncertainty_level]);
+      field(entry, 'Faux positifs / non-détection', `${levels[item.false_positive_risk]} / ${levels[item.false_negative_risk]}`);
+      field(entry, 'Périmètre', item.scope);
+      field(entry, 'Justification', item.rationale);
+      field(entry, 'Références déclarées par l’expert', item.evidence);
+      history.append(entry);
+    });
+  }
   await loadMatches(key);
   $('other-results').replaceChildren();
   $('other-query').value = '';
@@ -161,9 +212,29 @@ function comparisonFields(target, rule) {
   field(target, 'CWE', rule.cwe);
   field(target, 'OWASP', rule.owasp);
   field(target, 'Portée / mode documenté', rule.detection_method);
+  if (rule.uncertainty) {
+    uncertaintyFields(target, rule);
+    const edit = node('button', 'Évaluer l’incertitude de cette règle', 'text-button');
+    edit.addEventListener('click', () => openRule(rule.rule_key).catch(handleError));
+    target.append(edit);
+  }
   const link = node('a', 'Voir la source ↗');
   link.href = rule.source_url; link.target = '_blank'; link.rel = 'noopener noreferrer';
   target.append(link);
+}
+
+function uncertaintyFields(target, rule) {
+  const u = rule.uncertainty;
+  field(target, 'Incertitude de l’évaluation', uncertaintyLevels[u.uncertainty_level]);
+  field(target, 'Risque estimé de faux positifs', levels[u.false_positive_risk]);
+  field(target, 'Risque estimé de non-détection', levels[u.false_negative_risk]);
+  field(target, 'Statut / origine', `${assessmentStatuses[u.status]} · ${u.origin === 'expert_opinion' ? 'Avis expert' : 'Valeur par défaut, sans validation'}`);
+  field(target, 'Justification et limites', u.rationale);
+  if (u.scope) field(target, 'Périmètre de l’avis', u.scope);
+  if (u.reviewer) field(target, 'Auteur / date', `${u.reviewer} · ${u.created_at}`);
+  if (u.evidence) field(target, 'Références déclarées par l’expert', u.evidence);
+  field(target, 'Confiance déclarée par Semgrep (métadonnée)', rule.source_confidence);
+  target.append(node('p', 'La confiance déclarée par l’éditeur et les niveaux estimés ne sont pas des probabilités mesurées. Les tests de détection restent à mettre en place.', 'muted small'));
 }
 
 async function openMatch(castKey, semgrepKey) {
@@ -213,7 +284,7 @@ function handleError(error) { window.alert(error.message || String(error)); }
 
 $('nav-dashboard').addEventListener('click', () => {loadDashboard().then(() => show('dashboard')).catch(handleError);});
 $('nav-explorer').addEventListener('click', () => {loadRules().then(() => show('explorer')).catch(handleError);});
-$('back-to-explorer').addEventListener('click', () => show('explorer'));
+$('back-to-explorer').addEventListener('click', () => {loadRules().then(() => show('explorer')).catch(handleError);});
 $('back-to-detail').addEventListener('click', () => show('detail'));
 $('filters').addEventListener('submit', event => {event.preventDefault(); state.page = 1; loadRules().catch(handleError);});
 $('prev-page').addEventListener('click', () => {if (state.page > 1) {state.page--; loadRules().catch(handleError);}});
@@ -251,6 +322,21 @@ $('review-form').addEventListener('submit', async event => {
     event.target.reset();
     await openMatch(data.cast.rule_key, data.semgrep.rule_key);
   } catch (error) {handleError(error);}
+});
+
+$('uncertainty-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const rule = state.currentRule;
+  const form = event.target;
+  $('save-uncertainty').disabled = true;
+  try {
+    const payload = Object.fromEntries(new FormData(form));
+    Object.assign(payload, {rule_key: rule.rule_key, source_version: rule.source_version, definition_hash: rule.definition_hash});
+    await request('/api/uncertainty-assessments', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    await openRule(rule.rule_key);
+    $('uncertainty-form-status').textContent = 'Évaluation enregistrée dans l’historique.';
+  } catch (error) {handleError(error);}
+  finally {$('save-uncertainty').disabled = !state.currentRule.definition_hash || state.currentRule.status !== 'present';}
 });
 
 loadDashboard().catch(handleError);

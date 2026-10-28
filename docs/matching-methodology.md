@@ -30,3 +30,8 @@ Les éléments de preuve stockés dans `match_evidence` pointent vers les champs
 
 Les statuts d’avis expert sont : équivalent, partiellement équivalent, complémentaire, apparenté, sans correspondance identifiée, indéterminé et non comparable. Le classement automatique garde le statut `indeterminate` jusqu’à la revue.
 
+## Validation des principes et incertitude
+
+La [spécification v2](specification-v2-validation.md) définit le protocole pour démontrer une correspondance sur un corpus de code vulnérable et sûr. Les tests de détection sont planifiés dans le lot S6 ; le moteur actuel ne produit pas de preuve expérimentale.
+
+Chaque règle Semgrep dispose désormais d’une incertitude qualitative et de deux risques distincts (faux positifs, non-détection). Initialement, l’incertitude est élevée et les risques non évalués. Un expert peut enregistrer un avis motivé, borné à un périmètre et à une version. `metadata.confidence` reste une métadonnée de l’éditeur sans conversion en taux de précision. Un avis périmé reste dans l’historique et ne sert plus d’évaluation courante.

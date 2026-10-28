@@ -6,14 +6,16 @@ import csv
 import io
 import json
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .config import load_settings
-from .db import connect, decode_rule, initialize, utc_now
+from .db import connect, initialize, utc_now
+from .uncertainty import rules_with_uncertainty
 
 
 settings = load_settings()
@@ -58,16 +60,24 @@ def summary():
         reviewed_count = conn.execute("SELECT COUNT(DISTINCT cast_key || '|' || semgrep_key) FROM expert_reviews").fetchone()[0]
         matched_cast = conn.execute("SELECT COUNT(DISTINCT cast_key) FROM match_candidates").fetchone()[0]
         matched_semgrep = conn.execute("SELECT COUNT(DISTINCT semgrep_key) FROM match_candidates").fetchone()[0]
+        uncertainty = [dict(row) for row in conn.execute("""
+            SELECT u.status,u.uncertainty_level,COUNT(*) AS count FROM rule_uncertainty u
+            JOIN rules r USING(rule_key) WHERE r.status='present'
+            GROUP BY u.status,u.uncertainty_level ORDER BY u.status,u.uncertainty_level
+        """)]
     return {"counts": counts, "candidates": candidate_count, "reviewed": reviewed_count,
             "unmatched": {"CAST": max(0, counts.get("CAST", 0) - matched_cast),
                           "Semgrep": max(0, counts.get("Semgrep", 0) - matched_semgrep)},
-            "categories": categories, "languages": languages, "severities": severities, "snapshots": snapshots}
+            "categories": categories, "languages": languages, "severities": severities, "snapshots": snapshots,
+            "uncertainty": uncertainty}
 
 
 @app.get("/api/rules")
 def list_rules(
     q: str = "", source: str = "", language: str = "", category: str = "", cwe: str = "",
     severity: str = "", page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100),
+    uncertainty_level: str = "", assessment_status: str = "",
+    false_positive_risk: str = "", false_negative_risk: str = "",
 ):
     where = ["r.status='present'"]
     values: list[object] = []
@@ -95,6 +105,11 @@ def list_rules(
         else:
             where.append("LOWER(COALESCE(r.severity,''))=?")
             values.append(severity.lower())
+    for field, value in (("uncertainty_level", uncertainty_level), ("status", assessment_status),
+                         ("false_positive_risk", false_positive_risk), ("false_negative_risk", false_negative_risk)):
+        if value:
+            where.append(f"EXISTS(SELECT 1 FROM rule_uncertainty u WHERE u.rule_key=r.rule_key AND u.{field}=?)")
+            values.append(value)
     predicate = " AND ".join(where)
     with connect(settings.db_path) as conn:
         initialize(conn)
@@ -103,7 +118,8 @@ def list_rules(
             f"SELECT r.* FROM rules r WHERE {predicate} ORDER BY r.source,r.rule_id LIMIT ? OFFSET ?",
             [*values, page_size, (page - 1) * page_size],
         ).fetchall()
-    return {"total": total, "page": page, "page_size": page_size, "items": [decode_rule(r) for r in rows]}
+        items = rules_with_uncertainty(conn, rows)
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
 
 
 @app.get("/api/rule")
@@ -111,9 +127,12 @@ def get_rule(key: str):
     with connect(settings.db_path) as conn:
         initialize(conn)
         row = conn.execute("SELECT * FROM rules WHERE rule_key=?", (key,)).fetchone()
-    if row is None:
-        raise HTTPException(404, "Rule not found")
-    result = decode_rule(row)
+        if row is None:
+            raise HTTPException(404, "Rule not found")
+        result = rules_with_uncertainty(conn, [row])[0]
+        result["uncertainty_history"] = [dict(x) for x in conn.execute(
+            "SELECT * FROM uncertainty_assessments WHERE rule_key=? ORDER BY id DESC", (key,)
+        )]
     raw_path = Path(result["raw_path"])
     try:
         raw_path.resolve().relative_to(settings.data_dir.resolve())
@@ -166,12 +185,57 @@ def get_match(cast_key: str, semgrep_key: str):
         reviews = [dict(x) for x in conn.execute(
             "SELECT * FROM expert_reviews WHERE cast_key=? AND semgrep_key=? ORDER BY id DESC", pair
         )]
+        cast_result, semgrep_result = rules_with_uncertainty(conn, [cast, semgrep])
     result = dict(row)
     result["factors"] = json.loads(result.pop("factors_json"))
     for proposal in llm:
         proposal["proposal"] = json.loads(proposal.pop("proposal_json"))
-    return {"candidate": result, "cast": decode_rule(cast), "semgrep": decode_rule(semgrep),
+    return {"candidate": result, "cast": cast_result, "semgrep": semgrep_result,
             "sourced_evidence": evidence, "llm_proposals": llm, "expert_reviews": reviews}
+
+
+RiskLevel = Literal["unknown", "low", "medium", "high"]
+
+
+class UncertaintyInput(BaseModel):
+    rule_key: str
+    source_version: str = Field(min_length=1)
+    definition_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reviewer: str = Field(min_length=1, max_length=120)
+    uncertainty_level: RiskLevel
+    false_positive_risk: RiskLevel
+    false_negative_risk: RiskLevel
+    scope: str = Field(min_length=1, max_length=2000)
+    rationale: str = Field(min_length=1, max_length=5000)
+    evidence: str = Field(default="", max_length=5000)
+
+    @field_validator("reviewer", "scope", "rationale")
+    @classmethod
+    def non_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Ce champ ne peut pas être vide.")
+        return value.strip()
+
+
+@app.post("/api/uncertainty-assessments", status_code=201)
+def add_uncertainty_assessment(payload: UncertaintyInput):
+    with connect(settings.db_path) as conn:
+        initialize(conn)
+        # Keep the version check and insert atomic against concurrent imports.
+        conn.execute("BEGIN IMMEDIATE")
+        rule = conn.execute("SELECT * FROM rules WHERE rule_key=?", (payload.rule_key,)).fetchone()
+        if rule is None:
+            raise HTTPException(404, "Règle introuvable")
+        if rule["source"] != "Semgrep":
+            raise HTTPException(422, "L’évaluation concerne une règle Semgrep")
+        if rule["status"] != "present" or rule["source_version"] != payload.source_version or rule["definition_hash"] != payload.definition_hash:
+            raise HTTPException(409, "La règle a changé. Réimportez si nécessaire et rechargez sa fiche avant l’évaluation.")
+        data = payload.model_dump()
+        data["created_at"] = utc_now()
+        columns = ','.join(data)
+        markers = ','.join('?' for _ in data)
+        cursor = conn.execute(f"INSERT INTO uncertainty_assessments({columns}) VALUES({markers})", tuple(data.values()))
+        return dict(conn.execute("SELECT * FROM uncertainty_assessments WHERE id=?", (cursor.lastrowid,)).fetchone())
 
 
 class ReviewInput(BaseModel):
@@ -239,11 +303,13 @@ def _csv_response(rows: list[dict], filename: str) -> StreamingResponse:
 def export_rules(source: str = ""):
     with connect(settings.db_path) as conn:
         initialize(conn)
-        predicate = "AND source=?" if source in ("CAST", "Semgrep") else ""
+        predicate = "AND r.source=?" if source in ("CAST", "Semgrep") else ""
         values = (source,) if predicate else ()
         rows = [dict(row) for row in conn.execute(
-            "SELECT source,rule_id,title,category,classification_origin,severity,source_url,source_version,status "
-            f"FROM rules WHERE status='present' {predicate} ORDER BY source,rule_id", values
+            "SELECT r.source,r.rule_id,r.title,r.category,r.classification_origin,r.severity,r.source_url,r.source_version,r.status,"
+            "r.definition_hash,r.source_confidence,u.status AS assessment_status,u.uncertainty_level,"
+            "u.false_positive_risk,u.false_negative_risk,u.origin AS assessment_origin,u.scope,u.rationale,u.evidence,u.reviewer,u.created_at AS assessed_at "
+            f"FROM rules r LEFT JOIN rule_uncertainty u USING(rule_key) WHERE r.status='present' {predicate} ORDER BY r.source,r.rule_id", values
         )]
     return _csv_response(rows, "rules.csv")
 
@@ -255,8 +321,11 @@ def export_matches():
         rows = [dict(row) for row in conn.execute("""
           SELECT c.rule_id AS cast_id,s.rule_id AS semgrep_id,m.score,m.suggested_status,
           (SELECT decision FROM expert_reviews e WHERE e.cast_key=m.cast_key AND e.semgrep_key=m.semgrep_key ORDER BY id DESC LIMIT 1) AS expert_decision,
-          c.source_url AS cast_url,s.source_url AS semgrep_url
+          c.source_url AS cast_url,s.source_url AS semgrep_url,
+          u.uncertainty_level,u.false_positive_risk,u.false_negative_risk,
+          u.status AS assessment_status,u.origin AS assessment_origin,u.scope AS assessment_scope
           FROM match_candidates m JOIN rules c ON c.rule_key=m.cast_key JOIN rules s ON s.rule_key=m.semgrep_key
+          LEFT JOIN rule_uncertainty u ON u.rule_key=s.rule_key
           ORDER BY c.rule_id,m.score DESC
         """)]
     return _csv_response(rows, "matches.csv")

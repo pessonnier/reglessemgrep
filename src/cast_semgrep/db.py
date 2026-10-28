@@ -20,7 +20,7 @@ RULE_COLUMNS = (
     "rule_key", "source", "rule_id", "title", "description", "rationale", "remediation", "severity", "category",
     "classification_origin", "categories_json", "languages_json", "frameworks_json", "technologies_json", "cwe_json",
     "owasp_json", "owasp_raw_json", "standards_json", "detection_method", "source_url", "source_version", "raw_path",
-    "status", "collected_at", "snapshot_id",
+    "status", "collected_at", "snapshot_id", "definition_hash", "source_confidence",
 )
 
 
@@ -54,7 +54,12 @@ def initialize(conn: sqlite3.Connection) -> None:
     if version == 2:
         conn.executescript((MIGRATIONS / "003_owasp_raw.sql").read_text(encoding="utf-8"))
         conn.execute("PRAGMA user_version = 3")
-    elif version != 3:
+        version = 3
+    if version == 3:
+        conn.executescript((MIGRATIONS / "004_uncertainty.sql").read_text(encoding="utf-8"))
+        conn.execute("PRAGMA user_version = 4")
+        version = 4
+    if version != 4:
         raise RuntimeError(f"Unsupported database schema version: {version}")
 
 

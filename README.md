@@ -54,3 +54,19 @@ L’interface propose la recherche et des filtres combinables, les fiches des r�
 - [Références et normes](docs/reference/README.md)
 - [Spécification initiale](docs/specification-v1.md)
 
+## Incertitude et validation des principes
+
+Chaque règle Semgrep affiche l’incertitude de son évaluation, le risque estimé de faux positifs et le risque estimé de non-détection. Sans avis, l’incertitude est **élevée** et les deux risques **non évalués**. Il ne s’agit pas de probabilités mesurées. La confiance fournie dans les métadonnées Semgrep est affichée séparément.
+
+Dans la fiche Semgrep, ouvrir **Enregistrer une évaluation experte de cette règle**, renseigner le périmètre et la justification, puis enregistrer. Les avis sont historisés et liés à la version/empreinte de la règle. Un changement rend l’avis « à réévaluer ». Le catalogue propose des filtres sur ces valeurs et les exports CSV les conservent.
+
+Pour une installation P0 existante, arrêter le serveur, sauvegarder SQLite, puis lancer la réimportation locale et redémarrer :
+
+```bash
+uv run comparator import-semgrep
+uv run comparator serve
+```
+
+La migration conserve les règles, rapprochements et avis existants. Aucune nouvelle collecte CAST ou Semgrep n’est nécessaire.
+
+La [spécification v2 et son planning S6](docs/specification-v2-validation.md) prévoit les contrats de détection, **les exemples de code avec et sans vulnérabilité (S6.2)**, l’exécution des analyseurs et la mesure des faux positifs/non-détections. Un [modèle de dossier de validation](docs/templates/validation-case.md) est fourni. Les tests de détection et la confrontation au moteur CAST restent à implémenter ; les avis actuels sont qualitatifs.

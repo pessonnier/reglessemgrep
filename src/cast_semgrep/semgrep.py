@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import subprocess
 from collections import Counter
@@ -97,6 +98,8 @@ def normalize_semgrep(rule: dict, *, relative_path: str, checkout: Path, revisio
         "source_url": f"https://github.com/semgrep/semgrep-rules/blob/{revision}/{quote(relative_path)}",
         "source_version": revision,
         "raw_path": str(checkout / relative_path),
+        "definition_hash": hashlib.sha256(json.dumps(rule, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest(),
+        "source_confidence": str(metadata["confidence"]) if metadata.get("confidence") is not None else None,
     }
 
 
