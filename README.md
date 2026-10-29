@@ -85,3 +85,26 @@ Le menu et le lien de l’explorateur ouvrent la page [CAST → Semgrep](http://
 Dans un avis expert sur une paire, ou dans une évaluation d’incertitude Semgrep, cliquer sur **Ajouter un exemple de code**. Chaque exemple possède un titre facultatif, un langage, un type (vulnérable, corrigé, limite ou autre), le code et une explication du résultat attendu. Jusqu’à 10 exemples de 20 000 caractères chacun peuvent accompagner un avis. Les retours à la ligne et l’indentation sont conservés.
 
 Le code est stocké dans SQLite avec l’avis et reste consultable dans l’historique. Il est affiché comme texte et n’est jamais exécuté. Ces illustrations ne constituent pas des résultats d’analyse ni le corpus de validation automatisé prévu en S6.2. La migration v5 ajoute ce stockage en conservant les avis existants.
+
+## Association manuelle et API expert
+
+La page `/correspondances` présente aussi les **règles Semgrep sans candidat CAST**, avec filtres et pagination indépendants. Le menu **Associer deux règles** ouvre `/association` : choisir une règle de chaque catalogue, afficher leurs fiches et archives complètes, puis enregistrer le lien et l’avis expert habituel. Les associations manuelles sont conservées lors du recalcul des candidats.
+
+L’[API expert](docs/expert-api.md) permet le même parcours en lecture et écriture sous `/api/expert/`. Son contrat interactif est disponible dans `/docs#/Expert`. Les avis et exemples restent historisés ; le nom d’expert est déclaratif dans cette application locale sans authentification.
+
+## Générer le modèle de la base en Mermaid
+
+```bash
+# Schéma de la base configurée par COMPARATOR_DB, ouvert en lecture seule.
+uv run comparator schema-mermaid --output docs/database-schema.mmd
+
+# Version Markdown rendue par GitHub et les lecteurs compatibles Mermaid.
+uv run comparator schema-mermaid --format markdown --output docs/database-schema.md
+
+# Sans données locales : reconstruire uniquement le schéma en mémoire.
+uv run comparator schema-mermaid --from-migrations --output docs/database-schema.mmd
+```
+
+Le [modèle généré](docs/database-schema.md) représente les tables, colonnes, types, clés primaires/étrangères, unicités simples et relations composites. La vue `rule_uncertainty` est incluse et identifiée comme vue ; `--tables-only` l’exclut. `--database chemin.sqlite3` permet de choisir une autre base. Sans `--output`, le résultat est écrit sur la sortie standard.
+
+Le générateur utilise uniquement les métadonnées SQLite et ne lit pas les enregistrements. Il ne migre ni ne modifie une base existante. Les dépendances des vues et les relations logiques sans contrainte SQL ne sont pas inventées. Les champs JSON restent des colonnes TEXT. La sortie est déterministe pour faciliter sa mise à jour et son historique dans Git.

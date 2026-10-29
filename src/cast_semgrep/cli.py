@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
+from pathlib import Path
 
 from .cast import collect_cast, import_cast, latest_archive
 from .config import load_settings
@@ -30,11 +32,32 @@ def main() -> None:
     serve = sub.add_parser("serve", help="Start the local web application")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    schema = sub.add_parser("schema-mermaid", help="Generate a Mermaid ER diagram without reading database records")
+    source = schema.add_mutually_exclusive_group()
+    source.add_argument("--database", type=Path, help="Existing SQLite file (read-only; defaults to COMPARATOR_DB)")
+    source.add_argument("--from-migrations", action="store_true", help="Generate from migrations in memory without a local database")
+    schema.add_argument("--output", type=Path, help="Write to this file instead of standard output")
+    schema.add_argument("--format", choices=("mermaid", "markdown"), default="mermaid")
+    schema.add_argument("--tables-only", action="store_true", help="Exclude views")
     sub.add_parser("status", help="Show local import status")
     args = parser.parse_args()
     settings = load_settings()
 
-    if args.command == "init":
+    if args.command == "schema-mermaid":
+        from .schema_mermaid import generate_schema
+        database = None if args.from_migrations else (args.database or settings.db_path)
+        if database and args.output and args.output.resolve() == database.resolve():
+            parser.error("The output must not overwrite the database")
+        try:
+            output = generate_schema(database=database, include_views=not args.tables_only, markdown=args.format == "markdown")
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(output, encoding="utf-8")
+            else:
+                print(output, end="")
+        except (OSError, sqlite3.Error) as error:
+            parser.error(f"Cannot generate schema: {error}. Use --from-migrations for an empty model.")
+    elif args.command == "init":
         with connect(settings.db_path) as conn:
             initialize(conn)
         print(settings.db_path)

@@ -66,7 +66,7 @@ def cast_correspondences(conn: sqlite3.Connection, *, q: str = "", language: str
         by_key = {item["rule_key"]: item for item in items}
         placeholders = ','.join('?' for _ in items)
         pairs = conn.execute(ACTIVE_PAIRS + f""", ranked AS (
-          SELECT p.cast_key,p.semgrep_key,p.score,p.expert_decision,s.rule_id,s.title,s.languages_json,
+          SELECT p.cast_key,p.semgrep_key,p.score,p.expert_decision,COALESCE(json_extract(p.factors_json,'$.manual_association'),0) AS manual_association,s.rule_id,s.title,s.languages_json,
             u.uncertainty_level,u.false_positive_risk,u.false_negative_risk,u.status AS assessment_status,
             ROW_NUMBER() OVER (PARTITION BY p.cast_key ORDER BY
               CASE WHEN p.expert_decision='equivalent' THEN 0 WHEN p.expert_decision='partial' THEN 1

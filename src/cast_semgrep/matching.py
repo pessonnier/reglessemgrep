@@ -162,7 +162,9 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
         # Preserve pairs that an expert has reviewed; unreviewed suggestions are reproducible.
         conn.execute("""
           DELETE FROM match_candidates
-          WHERE NOT EXISTS (
+          WHERE COALESCE(json_extract(factors_json, '$.manual_association'), 0) != 1
+            AND COALESCE(json_extract(factors_json, '$.method'), '') != 'manual'
+            AND NOT EXISTS (
             SELECT 1 FROM expert_reviews r WHERE r.cast_key=match_candidates.cast_key AND r.semgrep_key=match_candidates.semgrep_key
           ) AND NOT EXISTS (
             SELECT 1 FROM llm_proposals l WHERE l.cast_key=match_candidates.cast_key AND l.semgrep_key=match_candidates.semgrep_key
@@ -200,7 +202,12 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
                   INSERT INTO match_candidates(cast_key,semgrep_key,score,factors_json,suggested_status,updated_at)
                   VALUES(?,?,?,?,?,?)
                   ON CONFLICT(cast_key,semgrep_key) DO UPDATE SET
-                    score=excluded.score,factors_json=excluded.factors_json,updated_at=excluded.updated_at
+                    score=excluded.score,factors_json=CASE
+                      WHEN json_extract(match_candidates.factors_json,'$.manual_association')=1
+                        OR json_extract(match_candidates.factors_json,'$.method')='manual'
+                      THEN json_set(excluded.factors_json,'$.manual_association',json('true'),
+                        '$.manually_associated_at',json_extract(match_candidates.factors_json,'$.manually_associated_at'))
+                      ELSE excluded.factors_json END,updated_at=excluded.updated_at
                 """, (*pair, score, json.dumps(factors, ensure_ascii=False), "indeterminate", utc_now()))
                 conn.execute("DELETE FROM match_evidence WHERE cast_key=? AND semgrep_key=?", pair)
                 conn.executemany("""

@@ -32,3 +32,11 @@ Montrer, pour chaque règle CAST, quelles règles Semgrep sont candidates ou ont
 Le menu utilise des liens vers `/correspondances`, `/regles` et `/statistiques`. Un lien explicite dans l’explorateur permet de retrouver la page des règles CAST et de leurs candidats Semgrep. Les boutons CAST/Semgrep/Tous ont été supprimés au profit de l’unique liste « Éditeur ».
 
 Les deux formulaires experts permettent d’ajouter ou de retirer des blocs de code avant enregistrement. Après enregistrement, ces exemples font partie de l’avis historisé, avec type de cas, langage et résultat attendu. Leur contenu est rendu littéralement, même s’il contient du HTML ou du JavaScript. Les exemples sont des déclarations de l’expert, sans exécution automatique.
+
+## Semgrep sans candidat et association libre
+
+La page `/correspondances` inclut désormais une section Semgrep sans candidat CAST, avec recherche, langage, CWE et pagination propres. Les deux règles d’une paire doivent être présentes pour qu’elle compte comme candidat identifié. Une paire avec avis négatif demeure une paire identifiée ; le libellé « sans candidat » ne signifie pas « sans équivalent validé ».
+
+Le menu « Associer deux règles » ouvre `/association`. Les deux sélecteurs sont recherchables et paginés, et les liens des catalogues peuvent présélectionner une règle (`cast_key` ou `semgrep_key` dans l’URL). La comparaison affiche les données des deux règles, leurs archives originales et leurs historiques avant toute écriture. L’utilisateur clique ensuite sur « Associer ces règles et donner un avis expert » et retrouve le même formulaire, avec décision, justification et exemples de code. Pour une paire déjà enregistrée, le formulaire est accessible directement.
+
+Les liens manuels sont conservés au recalcul et distingués du classement automatique. La [documentation API expert](expert-api.md) décrit le même parcours par HTTP. L’association ne produit pas d’avis ou de preuve implicite.

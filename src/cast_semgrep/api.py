@@ -27,6 +27,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/", include_in_schema=False)
 @app.get("/correspondances", include_in_schema=False)
+@app.get("/association", include_in_schema=False)
 @app.get("/regles", include_in_schema=False)
 @app.get("/statistiques", include_in_schema=False)
 def homepage():
@@ -76,6 +77,7 @@ def summary():
             "uncertainty": uncertainty}
 
 
+@app.get("/api/expert/rules", tags=["Expert"])
 @app.get("/api/rules")
 def list_rules(
     q: str = "", source: str = "", language: str = "", category: str = "", cwe: str = "",
@@ -126,6 +128,7 @@ def list_rules(
     return {"total": total, "page": page, "page_size": page_size, "items": items}
 
 
+@app.get("/api/expert/correspondences", tags=["Expert"])
 @app.get("/api/correspondences")
 def list_correspondences(
     q: str = "", language: str = "", cwe: str = "",
@@ -138,6 +141,7 @@ def list_correspondences(
                                     page=page, page_size=page_size)
 
 
+@app.get("/api/expert/rule", tags=["Expert"])
 @app.get("/api/rule")
 def get_rule(key: str):
     with connect(settings.db_path) as conn:
@@ -258,6 +262,7 @@ class UncertaintyInput(BaseModel):
         return value.strip()
 
 
+@app.post("/api/expert/uncertainty-assessments", tags=["Expert"], status_code=201)
 @app.post("/api/uncertainty-assessments", status_code=201)
 def add_uncertainty_assessment(payload: UncertaintyInput):
     with connect(settings.db_path) as conn:
@@ -284,7 +289,7 @@ class ReviewInput(BaseModel):
     cast_key: str
     semgrep_key: str
     reviewer: str = Field(min_length=1, max_length=120)
-    decision: str
+    decision: Literal["equivalent", "partial", "complementary", "related", "no_match", "indeterminate", "not_comparable"]
     comment: str = Field(default="", max_length=5000)
     code_examples: list[CodeExample] = Field(default_factory=list, max_length=10)
 
@@ -299,6 +304,7 @@ class ReviewInput(BaseModel):
 DECISIONS = {"equivalent", "partial", "complementary", "related", "no_match", "indeterminate", "not_comparable"}
 
 
+@app.post("/api/expert/reviews", tags=["Expert"], status_code=201)
 @app.post("/api/reviews")
 def add_review(payload: ReviewInput):
     if payload.decision not in DECISIONS:
@@ -323,20 +329,90 @@ class ManualCandidateInput(BaseModel):
     semgrep_key: str
 
 
+@app.post("/api/expert/associations", tags=["Expert"])
 @app.post("/api/candidates")
 def add_manual_candidate(payload: ManualCandidateInput):
     with connect(settings.db_path) as conn:
         initialize(conn)
-        source_rows = conn.execute("SELECT rule_key,source FROM rules WHERE rule_key IN (?,?)", (payload.cast_key, payload.semgrep_key)).fetchall()
+        conn.execute("BEGIN IMMEDIATE")
+        source_rows = conn.execute("SELECT rule_key,source,status FROM rules WHERE rule_key IN (?,?)", (payload.cast_key, payload.semgrep_key)).fetchall()
         sources = {row["rule_key"]: row["source"] for row in source_rows}
         if sources.get(payload.cast_key) != "CAST" or sources.get(payload.semgrep_key) != "Semgrep":
             raise HTTPException(422, "Select one CAST and one Semgrep rule")
+        if any(row["status"] != "present" for row in source_rows):
+            raise HTTPException(409, "Une règle a été retirée du catalogue. Rechargez la sélection.")
+        now = utc_now()
         conn.execute("""
           INSERT INTO match_candidates(cast_key,semgrep_key,score,factors_json,suggested_status,updated_at)
-          VALUES(?,?,?,?,?,?) ON CONFLICT(cast_key,semgrep_key) DO NOTHING
-        """, (payload.cast_key, payload.semgrep_key, 0, json.dumps({"method":"manual"}), "indeterminate", utc_now()))
+          VALUES(?,?,?,?,?,?) ON CONFLICT(cast_key,semgrep_key) DO UPDATE SET
+            factors_json=json_set(match_candidates.factors_json,'$.manual_association',json('true'),
+              '$.manually_associated_at',COALESCE(json_extract(match_candidates.factors_json,'$.manually_associated_at'),?))
+        """, (payload.cast_key, payload.semgrep_key, 0,
+              json.dumps({"method":"manual", "manual_association": True, "manually_associated_at": now}),
+              "indeterminate", now, now))
     return {"cast_key": payload.cast_key, "semgrep_key": payload.semgrep_key}
 
+
+
+@app.get("/api/correspondences/semgrep-unmatched")
+@app.get("/api/expert/semgrep-unmatched", tags=["Expert"])
+def list_unmatched_semgrep(q: str = "", language: str = "", cwe: str = "",
+                           page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
+    """Present Semgrep rules with no candidate linked to a present CAST rule."""
+    where = ["r.source='Semgrep'", "r.status='present'", """NOT EXISTS(
+      SELECT 1 FROM match_candidates m JOIN rules c ON c.rule_key=m.cast_key
+      WHERE m.semgrep_key=r.rule_key AND c.source='CAST' AND c.status='present')"""]
+    values = []
+    if q.strip():
+        where.append("LOWER(r.rule_id || ' ' || COALESCE(r.title,'') || ' ' || COALESCE(r.description,'')) LIKE ?")
+        values.append('%' + q.strip().lower() + '%')
+    for column, value in (("languages_json", language), ("cwe_json", cwe)):
+        if value.strip():
+            where.append(f"EXISTS(SELECT 1 FROM json_each(r.{column}) WHERE LOWER(value)=?)")
+            values.append(value.strip().lower())
+    predicate = ' AND '.join(where)
+    with connect(settings.db_path) as conn:
+        initialize(conn)
+        total = conn.execute(f"SELECT COUNT(*) FROM rules r WHERE {predicate}", values).fetchone()[0]
+        rows = conn.execute(f"SELECT r.* FROM rules r WHERE {predicate} ORDER BY r.rule_id,r.rule_key LIMIT ? OFFSET ?",
+                            [*values, page_size, (page-1)*page_size]).fetchall()
+        items = rules_with_uncertainty(conn, rows)
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+@app.get("/api/expert/comparison", tags=["Expert"])
+def preview_comparison(cast_key: str, semgrep_key: str):
+    """Read both complete archived rules and any existing opinions without creating a pair."""
+    cast, semgrep = get_rule(cast_key), get_rule(semgrep_key)
+    if cast["source"] != "CAST" or semgrep["source"] != "Semgrep":
+        raise HTTPException(422, "Select one CAST and one Semgrep rule")
+    try:
+        result = get_match(cast_key, semgrep_key)
+    except HTTPException as error:
+        if error.status_code != 404:
+            raise
+        result = {"candidate": None, "sourced_evidence": [], "llm_proposals": [], "expert_reviews": []}
+    result.update(cast=cast, semgrep=semgrep)
+    return result
+
+
+@app.get("/api/expert/reviews", tags=["Expert"])
+def list_reviews(cast_key: str = "", semgrep_key: str = "", reviewer: str = "",
+                 page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100)):
+    """Read append-only expert opinions, newest first, optionally filtered by pair or author."""
+    filters, values = [], []
+    for column, value in (("cast_key", cast_key), ("semgrep_key", semgrep_key), ("reviewer", reviewer)):
+        if value:
+            filters.append(f"{column}=?")
+            values.append(value)
+    predicate = ' AND '.join(filters) or '1=1'
+    with connect(settings.db_path) as conn:
+        initialize(conn)
+        total = conn.execute(f"SELECT COUNT(*) FROM expert_reviews WHERE {predicate}", values).fetchone()[0]
+        items = [decode_expert_record(row) for row in conn.execute(
+            f"SELECT * FROM expert_reviews WHERE {predicate} ORDER BY id DESC LIMIT ? OFFSET ?",
+            [*values, page_size, (page-1)*page_size])]
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
 
 def _csv_response(rows: list[dict], filename: str) -> StreamingResponse:
     output = io.StringIO()

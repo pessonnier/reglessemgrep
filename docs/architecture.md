@@ -40,3 +40,11 @@ La migration `005_expert_code.sql` ajoute `code_examples_json` aux tables `exper
 Les fiches et comparaisons renvoient les exemples comme listes JSON. Une évaluation d’incertitude périmée conserve ses exemples dans l’historique ; ils ne sont pas exposés comme exemples de l’avis courant. L’interface construit des éléments `pre/code` avec `textContent`, sans interprétation HTML ni exécution.
 
 Les chemins `/correspondances`, `/regles` et `/statistiques` servent la même application locale, avec une vue initiale déterminée par l’URL. La navigation principale utilise des liens standards.
+
+## Générateur du modèle relationnel
+
+`comparator schema-mermaid` inspecte `sqlite_schema`, les colonnes, index uniques et clés étrangères via les PRAGMA SQLite. Une FK composite devient une seule relation et les liens CAST/Semgrep vers `rules` conservent chacun leur rôle. Les cardinalités découlent des contraintes, pas du nombre d’enregistrements. Les contraintes CHECK, les valeurs par défaut et les index non uniques ne sont pas représentés dans le diagramme ER.
+
+La base sélectionnée est ouverte avec `mode=ro`, sans migration automatique. L’option `--from-migrations` applique les migrations à une base en mémoire ; elle est utilisable sans données ni collecte. Les sorties livrées sont [Mermaid brut](database-schema.mmd) et [Markdown avec diagramme](database-schema.md). Régénérer les deux lors d’une évolution du schéma.
+
+Syntaxe de référence : [diagrammes entité-relation Mermaid](https://mermaid.js.org/syntax/entityRelationshipDiagram.html).

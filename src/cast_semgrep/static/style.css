@@ -7,3 +7,17 @@
 #correspondences .section-heading{margin-bottom:16px}#correspondences .section-heading p:last-child{margin:8px 0}#correspondences .metrics{margin-bottom:14px}.mapping-metric{padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px}.mapping-metric strong{font-size:27px;margin:0;white-space:nowrap}.mapping-metric span{font-size:12px}.mapping-heading{padding-top:12px;padding-bottom:12px}.correspondence-filters{padding:12px}
 
 .topbar nav a{display:inline-block;text-decoration:none;border:0;padding:10px 13px;border-radius:6px;color:var(--muted);font-size:13px}.topbar nav a:hover{background:#eef5f6}.code-editor{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:7px}.code-editor legend{font-weight:700;font-size:13px}.code-editor label{display:block;margin-bottom:10px!important}.code-editor input,.code-editor select,.code-editor textarea{display:block;width:100%;margin-top:5px}.code-input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;white-space:pre;overflow:auto;tab-size:4;line-height:1.5}.code-example{min-width:0;margin:12px 0;overflow-wrap:anywhere}.code-example h4{margin:8px 0}.code-example pre{white-space:pre;overflow:auto;max-height:400px;tab-size:4}.code-examples{min-width:0;margin-top:18px}.review-code-input{margin:18px 0}#uncertainty-detail>.code-examples{grid-column:1/-1}#review-form>.primary{margin-top:14px}.code-editor .secondary{font-size:12px}@media(max-width:700px){.topbar nav a{flex:auto;text-align:center}}
+
+/* Manual selection and complete archived definitions. */
+.unmatched-section { margin-top: 2rem; scroll-margin-top: 1rem; }
+.manual-link { display: inline-block; margin: .75rem; }
+#manual select { width: 100%; min-height: 12rem; }
+#manual .panel { min-width: 0; }
+#manual form { display: grid; gap: .75rem; margin-bottom: 1rem; }
+#manual-preview { margin-top: 1rem; }
+#comparison pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 32rem; overflow: auto; }
+.topbar nav { flex-wrap: wrap; }
+
+#manual label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: .4rem; }
+#unmatched-filters { grid-template-columns: 2fr 1fr 1fr auto auto; }
+@media(max-width:1050px) { #unmatched-filters { grid-template-columns: 1fr 1fr; } }

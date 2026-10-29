@@ -28,11 +28,12 @@ async function request(url, options) {
 function show(view) {
   state.view = view;
   if (['correspondences', 'explorer'].includes(view)) state.listOrigin = view;
-  const path = {correspondences: '/correspondances', explorer: '/regles', dashboard: '/statistiques'}[view];
+  const path = {correspondences: '/correspondances', explorer: '/regles', dashboard: '/statistiques', manual: '/association'}[view];
   if (path && location.pathname !== path) history.replaceState(null, '', path);
-  for (const id of ['correspondences', 'dashboard', 'explorer', 'detail', 'comparison']) $(id).classList.toggle('hidden', id !== view);
+  for (const id of ['correspondences', 'dashboard', 'explorer', 'detail', 'comparison', 'manual']) $(id).classList.toggle('hidden', id !== view);
+  $('nav-manual').classList.toggle('nav-active', view === 'manual' || (view === 'comparison' && state.comparisonReturn === 'manual'));
   $('nav-dashboard').classList.toggle('nav-active', view === 'dashboard');
-  const parent = ['detail', 'comparison'].includes(view) ? state.listOrigin : view;
+  const parent = view === 'comparison' && state.comparisonReturn === 'manual' ? 'manual' : ['detail', 'comparison'].includes(view) ? state.listOrigin : view;
   $('nav-explorer').classList.toggle('nav-active', parent === 'explorer');
   $('nav-correspondences').classList.toggle('nav-active', parent === 'correspondences');
   window.scrollTo({top: 0, behavior: 'instant'});
@@ -214,7 +215,7 @@ async function loadMatches(key, offset = 0) {
   data.items.forEach(match => {
     const block = node('div', '', 'match'); block.tabIndex = 0;
     block.append(node('strong', match.other_title || match.other_id));
-    block.append(node('div', `${match.other_id} · Classement ${match.score}/100 · ${decisions[match.expert_decision] || 'Candidat automatique · à examiner'}`, 'match-meta'));
+    block.append(node('div', `${match.other_id} · Classement ${match.score}/100 · ${decisions[match.expert_decision] || (match.manual_association ? 'Association manuelle · à examiner' : 'Candidat automatique · à examiner')}`, 'match-meta'));
     block.append(node('div', `${match.evidence_count} références sourcées`, 'match-meta'));
     const action = () => openMatch(match.cast_key, match.semgrep_key).catch(handleError);
     block.addEventListener('click', action);
@@ -239,6 +240,13 @@ function comparisonFields(target, rule) {
   field(target, 'CWE', rule.cwe);
   field(target, 'OWASP', rule.owasp);
   field(target, 'Portée / mode documenté', rule.detection_method);
+  for (const [label, key] of [['Correction', 'remediation'], ['Technologies', 'technologies'], ['Frameworks', 'frameworks'],
+    ['Sévérité', 'severity'], ['Autres référentiels', 'standards'], ['OWASP d’origine', 'owasp_raw'],
+    ['Origine de classification', 'classification_origin'], ['Version source', 'source_version'], ['Statut dans l’inventaire', 'status'],
+    ['Empreinte de définition', 'definition_hash']]) field(target, label, rule[key]);
+  const raw = node('details'); raw.append(node('summary', 'Contenu original archivé'), node('pre', rule.raw_content || 'Aucun contenu brut disponible.'));
+  const all = node('details'); all.append(node('summary', 'Toutes les données et historiques disponibles'), node('pre', JSON.stringify(Object.fromEntries(Object.entries(rule).filter(([key]) => key !== 'raw_content')), null, 2)));
+  target.append(raw, all);
   if (rule.uncertainty) {
     uncertaintyFields(target, rule);
     const edit = node('button', 'Évaluer l’incertitude de cette règle', 'text-button');
@@ -267,7 +275,7 @@ function uncertaintyFields(target, rule) {
 
 async function openMatch(castKey, semgrepKey) {
   if (state.view !== 'comparison') state.comparisonReturn = state.view;
-  const data = await request(`/api/match?${new URLSearchParams({cast_key: castKey, semgrep_key: semgrepKey})}`);
+  const data = await request(`/api/expert/comparison?${new URLSearchParams({cast_key: castKey, semgrep_key: semgrepKey})}`);
   const previous = state.currentMatch;
   if (!previous || previous.cast.rule_key !== castKey || previous.semgrep.rule_key !== semgrepKey) {
     $('review-form').reset();
@@ -275,13 +283,24 @@ async function openMatch(castKey, semgrepKey) {
     $('review-status').textContent = '';
   }
   state.currentMatch = data;
-  $('back-to-detail').textContent = state.comparisonReturn === 'correspondences' ? '← Retour aux correspondances CAST → Semgrep' : '← Retour à la règle';
-  const factors = data.candidate.factors;
+  $('back-to-detail').textContent = state.comparisonReturn === 'manual' ? '← Modifier le choix des règles' : state.comparisonReturn === 'correspondences' ? '← Retour aux correspondances CAST → Semgrep' : '← Retour à la règle';
+  const factors = data.candidate?.factors || {};
+  $('manual-association').hidden = Boolean(data.candidate);
+  $('review-form').hidden = !data.candidate;
+  $('association-status').textContent = '';
+  $('associate-pair').disabled = data.cast.status !== 'present' || data.semgrep.status !== 'present';
   const score = $('comparison-score'); score.replaceChildren();
-  score.append(node('strong', `Score de classement ${data.candidate.score}/100 · ${factors.method || 'méthode inconnue'}`));
-  score.append(node('div', `Langage ${factors.technical_compatibility ?? 0}/15 · Défaut référencé ${factors.defect_references ?? 0}/35 · Titre ${factors.title_similarity ?? 0}/20 · Description ${factors.description_similarity ?? 0}/20 · Catégorie ${factors.category_similarity ?? 0}/10`, 'small'));
-  score.append(node('div', `Niveau de preuve : ${factors.evidence_level || 'inconnu'} · Préconditions : ${factors.precondition_alignment ?? 'non établies'} · Similarité sémantique : ${factors.semantic_similarity ?? 'non calculée'}`, 'small'));
-  score.append(node('div', factors.limitations || '', 'small muted'));
+  if (data.candidate) {
+    if (factors.method === 'manual') {
+      score.append(node('strong', 'Association manuelle · aucun classement automatique calculé'));
+    } else {
+      score.append(node('strong', `Score de classement ${data.candidate.score}/100 · ${factors.method || 'méthode inconnue'}`));
+      score.append(node('div', `Langage ${factors.technical_compatibility ?? 0}/15 · Défaut référencé ${factors.defect_references ?? 0}/35 · Titre ${factors.title_similarity ?? 0}/20 · Description ${factors.description_similarity ?? 0}/20 · Catégorie ${factors.category_similarity ?? 0}/10`, 'small'));
+      score.append(node('div', `Niveau de preuve : ${factors.evidence_level || 'inconnu'} · Préconditions : ${factors.precondition_alignment ?? 'non établies'} · Similarité sémantique : ${factors.semantic_similarity ?? 'non calculée'}`, 'small'));
+      score.append(node('div', factors.limitations || '', 'small muted'));
+    }
+    if (factors.manual_association || factors.method === 'manual') score.append(node('p', 'Association manuelle · l’avis expert est enregistré séparément.', 'small'));
+  } else score.append(node('strong', 'Comparaison libre · aucune association enregistrée'));
   $('compare-cast-title').textContent = data.cast.title || data.cast.rule_id;
   $('compare-semgrep-title').textContent = data.semgrep.title || data.semgrep.rule_id;
   comparisonFields($('compare-cast'), data.cast);
@@ -343,6 +362,7 @@ async function returnToList() {
 }
 
 async function loadCorrespondences() {
+  await loadUnmatched();
   const params = new URLSearchParams(new FormData($('correspondence-filters')));
   params.set('page', state.mappingPage); params.set('page_size', state.mappingPageSize);
   const data = await request(`/api/correspondences?${params}`);
@@ -380,7 +400,7 @@ async function loadCorrespondences() {
     if (cast.cwe.length) left.append(node('p', cast.cwe.join(', '), 'small muted'));
     const open = node('button', cast.candidate_count ? `Ouvrir la règle et ses ${cast.candidate_count} paires` : 'Ouvrir la règle CAST', 'secondary');
     open.addEventListener('click', () => openRule(cast.rule_key).catch(handleError));
-    left.append(open);
+    left.append(open, manualLink({cast_key: cast.rule_key}));
     const right = node('div', '', 'mapping-semgrep');
     if (!cast.matches.length) {
       right.append(node('strong', 'Aucun candidat Semgrep identifié'), node('p', 'Vous pouvez ouvrir la règle CAST et ajouter une paire à examiner.', 'small muted'));
@@ -391,7 +411,7 @@ async function loadCorrespondences() {
       title.addEventListener('click', () => openMatch(cast.rule_key, match.semgrep_key).catch(handleError));
       card.append(title);
       card.append(node('p', `${match.rule_id} · ${match.languages.join(', ') || 'Langage non renseigné'}`, 'small mono muted'));
-      card.append(node('span', decisions[match.expert_decision] || 'Candidat automatique · à examiner', `decision ${match.expert_decision === 'equivalent' ? 'expert-equivalent' : ''}`));
+      card.append(node('span', decisions[match.expert_decision] || (match.manual_association ? 'Association manuelle · à examiner' : 'Candidat automatique · à examiner'), `decision ${match.expert_decision === 'equivalent' ? 'expert-equivalent' : ''}`));
       card.append(node('p', `Classement ${match.score}/100 · Incertitude Semgrep : ${uncertaintyLevels[match.uncertainty_level] || 'Non évaluée'}`, 'small muted'));
       const compare = node('button', 'Comparer CAST et Semgrep', 'secondary');
       compare.addEventListener('click', () => openMatch(cast.rule_key, match.semgrep_key).catch(handleError));
@@ -459,7 +479,8 @@ function handleError(error) { window.alert(error.message || String(error)); }
 
 $('back-to-explorer').addEventListener('click', () => returnToList().catch(handleError));
 $('back-to-detail').addEventListener('click', () => {
-  if (state.comparisonReturn === 'correspondences') loadCorrespondences().then(() => show('correspondences')).catch(handleError);
+  if (state.comparisonReturn === 'manual') show('manual');
+  else if (state.comparisonReturn === 'correspondences') loadCorrespondences().then(() => show('correspondences')).catch(handleError);
   else if (state.currentRule) openRule(state.currentRule.rule_key).catch(handleError);
   else returnToList().catch(handleError);
 });
@@ -532,6 +553,100 @@ $('uncertainty-form').addEventListener('submit', async event => {
   finally {$('save-uncertainty').disabled = !state.currentRule.definition_hash || state.currentRule.status !== 'present';}
 });
 
-if (location.pathname === '/regles') openCatalog('CAST').catch(handleError);
+const manualState = {cast: {page: 1, key: ''}, semgrep: {page: 1, key: ''}};
+let unmatchedPage = 1;
+function manualLink(params) {
+  const link = node('a', 'Choisir une paire manuellement →', 'manual-link');
+  link.href = `/association?${new URLSearchParams(params)}`;
+  return link;
+}
+async function loadUnmatched() {
+  const params = new URLSearchParams(new FormData($('unmatched-filters')));
+  params.set('page', unmatchedPage); params.set('page_size', 20);
+  const data = await request(`/api/expert/semgrep-unmatched?${params}`);
+  if (unmatchedPage > 1 && !data.items.length) {unmatchedPage = Math.max(1, Math.ceil(data.total / 20)); return loadUnmatched();}
+  $('unmatched-count').textContent = `${data.total.toLocaleString('fr-FR')} règles Semgrep sans candidat CAST`;
+  $('unmatched-page').textContent = `Page ${data.page} / ${Math.max(1, Math.ceil(data.total / 20))}`;
+  $('unmatched-prev').disabled = data.page <= 1;
+  $('unmatched-next').disabled = data.page * 20 >= data.total;
+  const list = $('unmatched-list'); list.replaceChildren();
+  if (!data.items.length) list.append(node('p', 'Aucune règle Semgrep sans candidat pour ces critères.', 'muted'));
+  for (const rule of data.items) {
+    const card = node('article', '', 'mapping-pair');
+    card.append(node('h3', rule.title || rule.rule_id), node('p', `${rule.rule_id} · ${rule.languages.join(', ')}`, 'small mono'));
+    card.append(node('p', `Incertitude : ${uncertaintyLevels[rule.uncertainty.uncertainty_level]}`, 'small'));
+    const open = node('button', 'Ouvrir la règle Semgrep', 'secondary');
+    open.addEventListener('click', () => openRule(rule.rule_key).catch(handleError));
+    card.append(open, manualLink({semgrep_key: rule.rule_key})); list.append(card);
+  }
+}
+function syncManualPreview() {
+  $('manual-preview').disabled = !manualState.cast.key || !manualState.semgrep.key;
+}
+async function searchManual(side) {
+  const selection = manualState[side];
+  const revision = selection.revision = (selection.revision || 0) + 1;
+  $(`manual-${side}-select`).replaceChildren();
+  selection.key = ''; syncManualPreview();
+  $(`manual-${side}-selected`).textContent = '';
+  const params = new URLSearchParams(new FormData($(`manual-${side}-search`)));
+  params.set('source', side === 'cast' ? 'CAST' : 'Semgrep');
+  params.set('page', selection.page); params.set('page_size', 20);
+  const data = await request(`/api/expert/rules?${params}`);
+  if (selection.revision !== revision) return;
+  const select = $(`manual-${side}-select`); select.replaceChildren();
+  for (const rule of data.items) {const option = node('option', `${rule.rule_id} — ${rule.title || ''}`); option.value = rule.rule_key; select.append(option);}
+  select.selectedIndex = -1;
+  $(`manual-${side}-count`).textContent = `${data.total} règles · page ${data.page} / ${Math.max(1, Math.ceil(data.total/20))}`;
+  $(`manual-${side}-prev`).disabled = data.page <= 1;
+  $(`manual-${side}-next`).disabled = data.page * 20 >= data.total;
+}
+async function initManual() {
+  show('manual');
+  const params = new URLSearchParams(location.search);
+  for (const side of ['cast', 'semgrep']) {
+    await searchManual(side);
+    const key = params.get(`${side}_key`);
+    if (key) {
+      const rule = await request(`/api/expert/rule?${new URLSearchParams({key})}`);
+      if (rule.source !== (side === 'cast' ? 'CAST' : 'Semgrep') || rule.status !== 'present') throw new Error('La règle présélectionnée n’est pas disponible. Choisissez une règle du catalogue.');
+      const select = $(`manual-${side}-select`);
+      if (![...select.options].some(option => option.value === key)) {const option = node('option', `${rule.rule_id} — ${rule.title || ''}`); option.value = key; select.prepend(option);}
+      select.value = key; manualState[side].key = key;
+      $(`manual-${side}-selected`).textContent = `Sélection : ${rule.rule_id} — ${rule.title || ''}`;
+    }
+  }
+  syncManualPreview();
+}
+for (const side of ['cast', 'semgrep']) {
+  $(`manual-${side}-search`).addEventListener('submit', event => {event.preventDefault(); manualState[side].page = 1; searchManual(side).catch(handleError);});
+  for (const [action, delta] of [['prev', -1], ['next', 1]]) $(`manual-${side}-${action}`).addEventListener('click', () => {
+    manualState[side].page += delta; searchManual(side).catch(handleError);
+  });
+  $(`manual-${side}-select`).addEventListener('change', event => {
+    manualState[side].key = event.target.value;
+    $(`manual-${side}-selected`).textContent = `Sélection : ${event.target.selectedOptions[0]?.textContent || ''}`;
+    syncManualPreview();
+  });
+}
+$('manual-preview').addEventListener('click', () => openMatch(manualState.cast.key, manualState.semgrep.key).catch(handleError));
+$('associate-pair').addEventListener('click', async () => {
+  $('associate-pair').disabled = true;
+  try {
+    const pair = {cast_key: state.currentMatch.cast.rule_key, semgrep_key: state.currentMatch.semgrep.rule_key};
+    await request('/api/expert/associations', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pair)});
+    await openMatch(pair.cast_key, pair.semgrep_key);
+    $('review-status').textContent = 'Association enregistrée. Vous pouvez ajouter votre avis expert ci-dessus.';
+    $('review-form').scrollIntoView({behavior: 'smooth', block: 'center'});
+  } catch (error) {handleError(error);}
+  finally {$('associate-pair').disabled = false;}
+});
+$('unmatched-filters').addEventListener('submit', event => {event.preventDefault(); unmatchedPage = 1; loadUnmatched().catch(handleError);});
+$('unmatched-reset').addEventListener('click', () => {$('unmatched-filters').reset(); unmatchedPage = 1; loadUnmatched().catch(handleError);});
+$('unmatched-prev').addEventListener('click', () => {unmatchedPage--; loadUnmatched().catch(handleError);});
+$('unmatched-next').addEventListener('click', () => {unmatchedPage++; loadUnmatched().catch(handleError);});
+
+if (location.pathname === '/association') initManual().catch(handleError);
+else if (location.pathname === '/regles') openCatalog('CAST').catch(handleError);
 else if (location.pathname === '/statistiques') loadDashboard().then(() => show('dashboard')).catch(handleError);
 else loadCorrespondences().then(() => show('correspondences')).catch(handleError);

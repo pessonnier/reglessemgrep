@@ -4,17 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CAST · Semgrep — comparateur de règles</title>
-  <link rel="stylesheet" href="/static/style.css?v=5-expert-code">
-  <script defer src="/static/app.js?v=5-expert-code"></script>
+  <link rel="stylesheet" href="/static/style.css?v=6-manual-pairs">
+  <script defer src="/static/app.js?v=6-manual-pairs"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">C:S</span><div><strong>CAST · Semgrep</strong><small>Comparateur de règles</small></div></div>
-    <nav><a id="nav-correspondences" class="nav-active" href="/correspondances">CAST → Semgrep</a><a id="nav-explorer" href="/regles">Explorer les règles</a><a id="nav-dashboard" href="/statistiques">Inventaires et statistiques</a></nav>
+    <nav><a id="nav-correspondences" class="nav-active" href="/correspondances">CAST → Semgrep</a><a id="nav-manual" href="/association">Associer deux règles</a><a id="nav-explorer" href="/regles">Explorer les règles</a><a id="nav-dashboard" href="/statistiques">Inventaires et statistiques</a></nav>
   </header>
   <main>
     <section id="correspondences" class="view">
       <div class="section-heading"><div><p class="eyebrow">Correspondances CAST → Semgrep</p><h1>Quelles règles Semgrep correspondent à vos règles CAST ?</h1><p class="muted">Partez d’une règle CAST, examinez ses candidats Semgrep et comparez leurs principes de détection. Les avis d’équivalence de l’expert sont distingués du classement automatique.</p></div></div>
+      <p><a href="/association">Choisir deux règles et les associer manuellement →</a> · <a href="#semgrep-unmatched">Voir les règles Semgrep sans candidat CAST</a></p>
       <div id="correspondence-metrics" class="metrics correspondence-metrics"></div>
       <form id="correspondence-filters" class="filters correspondence-filters">
         <label>Recherche CAST ou Semgrep <input name="q" type="search" placeholder="Identifiant ou intitulé de règle"></label>
@@ -29,6 +30,39 @@
         <div class="mapping-heading"><span>Règle CAST</span><span>Règles Semgrep candidates · jusqu’à 3 paires affichées</span></div>
         <div id="correspondence-list"></div>
       </div>
+      <section id="semgrep-unmatched" class="panel unmatched-section">
+        <h2>Règles Semgrep sans candidat CAST identifié</h2>
+        <p class="muted small">Aucune paire avec une règle CAST présente dans l’inventaire. Cela ne prouve pas l’absence d’une règle CAST correspondante. Les paires associées manuellement sont prises en compte.</p>
+        <form id="unmatched-filters" class="filters">
+          <label>Recherche Semgrep <input name="q" type="search" placeholder="Identifiant, titre, description"></label>
+          <label>Langage Semgrep <input name="language" placeholder="ex. python"></label>
+          <label>CWE Semgrep <input name="cwe" placeholder="ex. CWE-89"></label>
+          <button class="primary">Rechercher Semgrep sans candidat</button><button type="button" class="secondary" id="unmatched-reset">Réinitialiser</button>
+        </form>
+        <div class="table-toolbar"><span id="unmatched-count" role="status"></span><div><button id="unmatched-prev">Précédent Semgrep</button><span id="unmatched-page"></span><button id="unmatched-next">Suivant Semgrep</button></div></div>
+        <div id="unmatched-list"></div>
+      </section>
+    </section>
+
+    <section id="manual" class="view hidden">
+      <p class="eyebrow">Association manuelle</p><h1>Choisir une règle CAST et une règle Semgrep</h1>
+      <p>Recherchez chaque règle, sélectionnez-la puis consultez les deux fiches complètes avant de les associer. L’association ouvre le formulaire habituel d’avis expert ; elle ne vaut pas avis d’équivalence.</p>
+      <div class="comparison-columns">
+        <section class="panel"><h2>Règle CAST</h2>
+          <form id="manual-cast-search"><label>Rechercher une règle CAST <input name="q" type="search" placeholder="Identifiant, titre, description"></label><button class="primary">Rechercher CAST</button></form>
+          <label for="manual-cast-select">Choisir la règle CAST</label><select id="manual-cast-select" size="6"></select>
+          <p id="manual-cast-count" role="status"></p><button class="secondary" id="manual-cast-prev">Précédent CAST</button><button class="secondary" id="manual-cast-next">Suivant CAST</button>
+          <p id="manual-cast-selected" class="small"></p>
+        </section>
+        <section class="panel"><h2>Règle Semgrep</h2>
+          <form id="manual-semgrep-search"><label>Rechercher une règle Semgrep <input name="q" type="search" placeholder="Identifiant, titre, description"></label><button class="primary">Rechercher Semgrep</button></form>
+          <label for="manual-semgrep-select">Choisir la règle Semgrep</label><select id="manual-semgrep-select" size="6"></select>
+          <p id="manual-semgrep-count" role="status"></p><button class="secondary" id="manual-semgrep-prev">Précédent Semgrep</button><button class="secondary" id="manual-semgrep-next">Suivant Semgrep</button>
+          <p id="manual-semgrep-selected" class="small"></p>
+        </section>
+      </div>
+      <button id="manual-preview" class="primary" disabled>Afficher les deux règles complètes</button>
+      <p><a href="/docs#/Expert" target="_blank" rel="noopener">Documentation interactive de l’API expert ↗</a></p>
     </section>
 
     <section id="dashboard" class="view hidden">
@@ -86,6 +120,7 @@
 
     <section id="comparison" class="view hidden">
       <button id="back-to-detail" class="text-button">← Retour à la règle</button><p class="eyebrow">Comparaison</p><h1>Rapprochement proposé</h1>
+      <div id="manual-association" class="panel" hidden><p>Cette paire n’est pas encore associée. Consultez les fiches ci-dessous avant de l’enregistrer.</p><button id="associate-pair" class="primary">Associer ces règles et donner un avis expert</button><p id="association-status" role="status"></p></div>
       <div id="comparison-score" class="score-banner"></div>
       <div class="comparison-columns"><section class="panel"><p class="source-tag cast">CAST</p><h2 id="compare-cast-title"></h2><div id="compare-cast"></div></section><section class="panel"><p class="source-tag semgrep">Semgrep</p><h2 id="compare-semgrep-title"></h2><div id="compare-semgrep"></div></section></div>
       <div class="three-columns"><section class="panel"><h2>Références sourcées</h2><p class="muted small">Champs et liens des catalogues originaux.</p><div id="evidence"></div></section><section class="panel"><h2>Propositions LLM</h2><p class="muted small">Analyse automatique facultative, distincte des sources.</p><div id="llm-proposals"></div></section><section class="panel"><h2>Avis de l’expert</h2><p class="muted small">Décision humaine historisée.</p><div id="expert-reviews"></div><form id="review-form"><label>Votre nom <input name="reviewer" required maxlength="120"></label><label>Décision <select name="decision"><option value="indeterminate">Indéterminé</option><option value="equivalent">Équivalent</option><option value="partial">Partiellement équivalent</option><option value="complementary">Complémentaire</option><option value="related">Apparenté</option><option value="no_match">Sans correspondance identifiée</option><option value="not_comparable">Non comparable</option></select></label><label>Justification <textarea name="comment" rows="4" maxlength="5000"></textarea></label><div class="review-code-input"><h3>Exemples de code</h3><p class="muted small">Ajoutez un cas vulnérable, corrigé ou limite pour étayer votre avis. Le code est archivé avec l’évaluation et n’est pas exécuté.</p><div id="review-examples-editor"></div><button type="button" id="add-review-example" class="secondary">Ajouter un exemple de code</button></div><button class="primary" id="save-review">Enregistrer l’avis</button><p id="review-status" role="status" class="small muted"></p></form></section></div>
