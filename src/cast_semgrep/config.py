@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -34,6 +34,7 @@ class Settings:
     cast_username: str
     cast_password: str
     cast_request_interval: float
+    openai_api_key: str = field(default="", repr=False)
 
     @property
     def cast_credentials_available(self) -> bool:
@@ -57,4 +58,5 @@ def load_settings() -> Settings:
         cast_username=get("CAST_USERNAME"),
         cast_password=get("CAST_PASSWORD"),
         cast_request_interval=max(0.0, float(get("CAST_REQUEST_INTERVAL", "0.35"))),
+        openai_api_key=get("OPENAI_API_KEY").strip(),
     )

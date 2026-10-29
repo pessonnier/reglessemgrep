@@ -41,11 +41,30 @@ def main() -> None:
     schema.add_argument("--tables-only", action="store_true", help="Exclude views")
     sub.add_parser("semantic-sync", help="Snapshot current rule titles/descriptions without generating embeddings")
     sub.add_parser("semantic-status", help="Show vector coverage by model")
+    embed = sub.add_parser("embed-openai", help="Calculate and resume title/description vectors with OpenAI")
+    embed.add_argument("--model", choices=("text-embedding-3-small", "text-embedding-3-large"), default="text-embedding-3-small")
+    embed.add_argument("--dimensions", type=int)
+    embed.add_argument("--revision", default="alias-v1", help="Local generation label; not a pinned OpenAI model revision")
+    embed.add_argument("--batch-size", type=int, default=64)
+    embed.add_argument("--limit", type=int, help="Maximum number of missing field vectors to compute")
+    embed.add_argument("--dry-run", action="store_true", help="Count missing vectors without calling OpenAI")
     sub.add_parser("status", help="Show local import status")
     args = parser.parse_args()
     settings = load_settings()
 
-    if args.command == "schema-mermaid":
+    if args.command == "embed-openai":
+        import sys
+        from .openai_embeddings import run_embeddings, EmbeddingError
+        try:
+            result = run_embeddings(settings, model=args.model, dimensions=args.dimensions, revision=args.revision,
+                                    batch_size=args.batch_size, limit=args.limit, dry_run=args.dry_run,
+                                    progress=lambda state: print(json.dumps(state), file=sys.stderr, flush=True))
+        except EmbeddingError as error:
+            parser.error(str(error))
+        print(json.dumps(result, indent=2))
+        if result['oversized_fields'] or result['stale_vectors']:
+            raise SystemExit(1)
+    elif args.command == "schema-mermaid":
         from .schema_mermaid import generate_schema
         database = None if args.from_migrations else (args.database or settings.db_path)
         if database and args.output and args.output.resolve() == database.resolve():

@@ -103,8 +103,42 @@ Les deux vecteurs peuvent être envoyés séparément. Un champ absent ou `null`
 
 Contrôles : nombres finis, vecteur non nul, dimension exacte, modèle et règle existants, texte source non vide, empreinte encore courante. Réponses : 200 pour succès, 404 pour règle/modèle inconnu, 409 pour texte périmé/règle retirée/configuration ou vecteur en conflit, 422 pour entrée invalide. Les refus n’écrivent aucun vecteur partiel.
 
+## Calcul avec OpenAI
+
+Le script Python `src/cast_semgrep/openai_embeddings.py` calcule les vecteurs et les enregistre directement dans SQLite. Le serveur web n’a pas besoin de fonctionner. Dans le fichier `.env` à la racine du projet, ajouter :
+
+```dotenv
+OPENAI_API_KEY=votre-cle-api
+```
+
+La variable d’environnement du même nom est prioritaire. Ne pas publier le fichier `.env`. Le script transmet **uniquement les titres et descriptions** au point d’accès officiel `https://api.openai.com/v1/embeddings`. Les appels sont facturés sur le compte API associé ; les identifiants CAST restent locaux.
+
+```bash
+# Préparer et compter les champs manquants, sans appel ni clé API
+uv run comparator embed-openai --dry-run
+# Calculer tous les vecteurs manquants, ou reprendre après interruption
+uv run comparator embed-openai
+# Petit premier lot : la limite compte les champs, pas les règles
+uv run comparator embed-openai --limit 20
+# Autre modèle, conservé séparément
+uv run comparator embed-openai --model text-embedding-3-large
+# Exécution du script comme module Python
+uv run python -m cast_semgrep.openai_embeddings --dry-run
+uv run comparator semantic-status
+```
+
+Par défaut : `text-embedding-3-small`, 1 536 dimensions, lots de 64 textes. `--dimensions` permet de réduire la dimension ; `--batch-size` accepte 1 à 128 textes. `text-embedding-3-large` utilise par défaut 3 072 dimensions. Voir la [documentation officielle OpenAI](https://developers.openai.com/api/docs/guides/embeddings).
+
+Le registre utilise une clé telle que `openai/text-embedding-3-small/alias-v1/1536`. `--revision alias-v2` ouvre une nouvelle génération sans écraser la précédente. Cette révision est une **étiquette locale**, pas une garantie de version immuable du modèle chez OpenAI. Une configuration déjà enregistrée sous une autre clé est réutilisée.
+
+Les champs vides et les vecteurs déjà présents pour cette version de texte et de modèle sont ignorés. Les textes sont envoyés exactement tels qu’archivés, sans troncature ni remplacement des retours à la ligne. Une limite conservatrice de **8 191 octets UTF-8 par texte** évite de dépasser les 8 192 tokens d’entrée : certains textes admissibles en tokens peuvent ainsi être écartés. Les champs écartés sont explicitement listés dans `oversized_fields` ; le processus termine avec un code non nul et ne prétend pas avoir tout calculé. Chaque requête est également limitée à 200 000 octets de texte et 128 entrées, sous les plafonds documentés de 300 000 tokens et 2 048 entrées.
+
+Les réponses sont contrôlées : modèle, indices uniques, nombre de vecteurs, dimensions, valeurs finies et non nulles. Chaque lot validé est enregistré dans une transaction. Si le texte a changé pendant l’appel, ses vecteurs sont rejetés et comptés dans `stale_vectors` ; relancer pour traiter la nouvelle version. Les vecteurs ajoutés simultanément par un autre client sont conservés. Les erreurs réseau, HTTP 429 et 5xx sont retentées au maximum trois fois, avec attente progressive. Les erreurs d’authentification arrêtent immédiatement le traitement. Les lots déjà enregistrés restent disponibles ; une interruption entre réponse distante et enregistrement peut néanmoins conduire à refaire un appel facturé.
+
+La progression JSON est affichée sur la sortie d’erreur après chaque lot ; le bilan final est affiché sur la sortie standard. `total_tokens` compte les tokens des réponses validées de l’exécution, pas un relevé exhaustif de facturation ni un total historique. Éviter deux exécutions simultanées du même modèle pour ne pas payer des calculs redondants. La clé API et les corps des erreurs distantes ne sont jamais affichés par le script.
+
 ## Portée de cette livraison
 
-Le stockage, le versionnement, la préparation des textes et l’API d’ingestion sont opérationnels. Aucun fournisseur de modèles n’est appelé et aucun embedding artificiel n’est inséré. Les vecteurs seront alimentés par un client ou un futur connecteur de calcul. Il n’y a pas encore d’index de recherche vectorielle ni de calcul de similarité intégré aux rapprochements CAST–Semgrep.
+Le stockage, le versionnement, la préparation des textes, l’API d’ingestion et le script de calcul OpenAI sont opérationnels. Les appels distants ont lieu uniquement lors d’une exécution explicite de `embed-openai`, jamais lors d’un import ou de l’affichage du site. Il n’y a pas encore d’index de recherche vectorielle ni de calcul de similarité intégré aux rapprochements CAST–Semgrep.
 
 Comme l’API expert, cette API est destinée au serveur local `127.0.0.1` et ne dispose pas d’authentification. Les identifiants de connexion CAST ne sont pas utilisés pour les modèles. Un client externe envoyant les textes à un fournisseur devra disposer de sa propre configuration et des autorisations adéquates.
