@@ -94,7 +94,7 @@ class ManualAssociationTests(unittest.TestCase):
         calculate_matches(self.config,min_score=0)
         current=api.get_match('CAST:1','Semgrep:1')
         self.assertTrue(current['candidate']['factors']['manual_association'])
-        self.assertEqual(current['candidate']['factors']['method'],'deterministic-v1')
+        self.assertEqual(current['candidate']['factors']['method'],'deterministic-v2-owasp')
         self.assertEqual(current['expert_reviews'],[])
         # Re-association of an automatically ranked pair preserves its computed score.
         score=current['candidate']['score']

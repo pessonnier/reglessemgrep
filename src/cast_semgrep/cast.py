@@ -18,7 +18,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 from .config import Settings
 from .db import connect, create_snapshot, initialize, upsert_rules
-from .normalization import normalize_owasp
+from .normalization import canonical_owasp
 
 
 BASE = "https://technologies.castsoftware.com"
@@ -192,7 +192,7 @@ def _references(value: object, standard: str) -> list[str]:
         if isinstance(item, dict) and str(item.get("standard", "")).upper() == standard:
             if item.get("id"):
                 result.add(str(item["id"]))
-    return sorted({normalize_owasp(ref) for ref in result}) if standard == "OWASP" else sorted(result)
+    return canonical_owasp(result) if standard == "OWASP" else sorted(result)
 
 
 def normalize_cast(item: dict, detail: dict, archive: Path, revision: str) -> dict:

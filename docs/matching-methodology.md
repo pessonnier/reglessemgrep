@@ -1,6 +1,6 @@
 # Méthode de rapprochement déterministe
 
-Version `deterministic-v1`. Le score de 0 à 100 classe des **candidats** et ne mesure pas la couverture démontrée.
+Version `deterministic-v2-owasp`. Le score de 0 à 100 classe des **candidats** et ne mesure pas la couverture démontrée.
 
 ## Sélection
 
@@ -16,7 +16,7 @@ Pour chaque règle CAST, le programme recherche des règles Semgrep partageant u
 | Proximité des termes de description | 20 |
 | Catégorie compatible | 10 |
 
-Le score est plafonné à 100. Une paire doit avoir un CWE commun, ou un OWASP commun accompagné d’un terme distinctif du titre et de deux termes descriptifs communs, ou au moins deux termes du titre communs ; elle doit aussi atteindre le seuil configuré. Des termes génériques tels que « injection » ne suffisent pas, seuls, pour déclencher une piste OWASP. Seuls les `top_k` meilleurs candidats par règle CAST sont conservés à chaque calcul. Les paires déjà revues par un expert restent conservées même si leur rang évolue.
+Le score est plafonné à 100. Une paire doit avoir un CWE commun, ou un OWASP commun accompagné d’un terme distinctif du titre et de deux termes descriptifs communs, ou au moins deux termes du titre communs ; elle doit aussi atteindre le seuil configuré. Des termes génériques tels que « injection » ne suffisent pas, seuls, pour déclencher une piste OWASP. Seuls les `top_k` meilleurs candidats par règle CAST sont conservés à chaque calcul. Les paires déjà revues par un expert, associées manuellement ou accompagnées d’une proposition LLM restent conservées même si leur rang évolue.
 
 La convergence des préconditions et la similarité sémantique restent « non établies / non calculées » à ce stade. Le niveau de preuve indique seulement si une référence de taxonomie est partagée ou si le candidat repose sur des termes communs.
 
@@ -35,3 +35,13 @@ Les statuts d’avis expert sont : équivalent, partiellement équivalent, compl
 La [spécification v2](specification-v2-validation.md) définit le protocole pour démontrer une correspondance sur un corpus de code vulnérable et sûr. Les tests de détection sont planifiés dans le lot S6 ; le moteur actuel ne produit pas de preuve expérimentale.
 
 Chaque règle Semgrep dispose désormais d’une incertitude qualitative et de deux risques distincts (faux positifs, non-détection). Initialement, l’incertitude est élevée et les risques non évalués. Un expert peut enregistrer un avis motivé, borné à un périmètre et à une version. `metadata.confidence` reste une métadonnée de l’éditeur sans conversion en taux de précision. Un avis périmé reste dans l’historique et ne sert plus d’évaluation courante.
+
+## Jointure OWASP et éditions
+
+Un parseur commun aux deux importeurs et au moteur de score extrait une clé canonique `famille + numéro sur deux chiffres + : + année`. `A03-2021`, `A3 : 2021`, `A03–2021` et `A03:2021 - Injection` produisent `A03:2021`. Les libellés complets et graphies originales restent dans `owasp_raw`, et les preuves citent ces valeurs d’origine. Le recalcul normalise aussi les anciennes lignes locales et peut récupérer une référence présente seulement dans les valeurs brutes, sans nouvelle collecte ni modification des empreintes des définitions.
+
+La jointure exige la même famille (`A`, `API`, `M`), le même numéro (1 à 10) et la même édition. Une référence incomplète, sans année ou invalide n’est pas jointe. Aucun rapprochement inter-éditions n’est déduit du seul numéro : la catégorie officielle [A03:2021 couvre l’injection](https://top10.owasp.org/2021/A03_2021-Injection/), tandis que les références du [Top 10 API ont leur propre nomenclature](https://api-security.owasp.org/editions/2023/en/0xa3-broken-object-property-level-authorization/).
+
+Au moins une clé OWASP commune apporte **10 points avant plafond**, quel que soit le nombre de références communes ; un CWE commun apporte 30 points. Le bloc CWE + OWASP reste plafonné à 35 : OWASP ajoute donc 5 points effectifs si CWE apporte déjà 30. Les doublons de graphie ou multiples éditions déclarées ne multiplient pas les points. `shared_owasp`, `owasp_reference_points`, `cwe_reference_points` et `reference_points_cap` rendent cette contribution explicite dans l’API ; la comparaison l’affiche également.
+
+`comparator match` rapporte les nombres de paires actives avant/après, nouvelles et retirées, les scores modifiés et les règles de chaque éditeur nouvellement reliées. Ces nombres sont mesurés sur le résultat conservé après seuil et top-k ; ils ne représentent pas toutes les combinaisons partageant une catégorie OWASP.

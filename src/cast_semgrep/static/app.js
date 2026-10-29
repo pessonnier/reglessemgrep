@@ -297,6 +297,7 @@ async function openMatch(castKey, semgrepKey) {
       score.append(node('strong', `Score de classement ${data.candidate.score}/100 · ${factors.method || 'méthode inconnue'}`));
       score.append(node('div', `Langage ${factors.technical_compatibility ?? 0}/15 · Défaut référencé ${factors.defect_references ?? 0}/35 · Titre ${factors.title_similarity ?? 0}/20 · Description ${factors.description_similarity ?? 0}/20 · Catégorie ${factors.category_similarity ?? 0}/10`, 'small'));
       score.append(node('div', `Niveau de preuve : ${factors.evidence_level || 'inconnu'} · Préconditions : ${factors.precondition_alignment ?? 'non établies'} · Similarité sémantique : ${factors.semantic_similarity ?? 'non calculée'}`, 'small'));
+      score.append(node('div', `Références OWASP communes : ${(factors.shared_owasp || []).join(', ') || 'aucune'} · ${factors.owasp_reference_points ?? ((factors.shared_owasp || []).length ? 10 : 0)} points avant le plafond CWE + OWASP de 35 points.`, 'small'));
       score.append(node('div', factors.limitations || '', 'small muted'));
     }
     if (factors.manual_association || factors.method === 'manual') score.append(node('p', 'Association manuelle · l’avis expert est enregistré séparément.', 'small'));

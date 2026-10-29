@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import Settings
 from .db import connect, decode_rule, initialize, utc_now
-from .normalization import normalize_owasp
+from .normalization import canonical_owasp, extract_owasp
 
 
 WORD_RE = re.compile(r"[a-z0-9]{3,}", re.IGNORECASE)
@@ -74,15 +74,19 @@ def _evidence(rule: dict, dimension: str, field: str, excerpt: str) -> dict:
 
 def _original_owasp_reference(rule: dict, normalized: str) -> str:
     for value in rule.get("owasp_raw", []):
-        match = re.search(r"\b(?:API|A)\d{1,2}[:-]20\d{2}\b", str(value), re.IGNORECASE)
-        if match and normalize_owasp(match.group()) == normalized:
+        if normalized in extract_owasp(str(value)):
             return str(value)
     return f"Identifiant normalisé : {normalized}"
 
 
+def owasp_keys(rule: dict) -> list[str]:
+    # Also read preserved originals to recover references missed by older importers.
+    return canonical_owasp([*rule.get("owasp", []), *rule.get("owasp_raw", [])])
+
+
 def score_pair(cast: dict, semgrep: dict) -> tuple[int, dict, list[dict]]:
     common_cwe = set(cast["cwe"]) & set(semgrep["cwe"])
-    common_owasp = set(cast["owasp"]) & set(semgrep["owasp"])
+    common_owasp = set(owasp_keys(cast)) & set(owasp_keys(semgrep))
     common_language = languages(cast) & languages(semgrep)
     cast_title = tokens(cast["title"])
     semgrep_title = tokens(semgrep["title"])
@@ -101,6 +105,9 @@ def score_pair(cast: dict, semgrep: dict) -> tuple[int, dict, list[dict]]:
         "shared_description_terms": sorted(text_overlap)[:20],
         "category_match": bool(category_match),
         "technical_compatibility": 15 if common_language else 0,
+        "cwe_reference_points": 30 if common_cwe else 0,
+        "owasp_reference_points": 10 if common_owasp else 0,
+        "reference_points_cap": 35,
         "defect_references": min(35, (30 if common_cwe else 0) + (10 if common_owasp else 0)),
         "title_similarity": round(20 * title_similarity),
         "description_similarity": round(20 * min(1.0, text_similarity)),
@@ -108,7 +115,7 @@ def score_pair(cast: dict, semgrep: dict) -> tuple[int, dict, list[dict]]:
         "precondition_alignment": None,
         "semantic_similarity": None,
         "evidence_level": "shared_reference" if common_cwe or common_owasp else "shared_terms_only",
-        "method": "deterministic-v1",
+        "method": "deterministic-v2-owasp",
         "limitations": "A high score ranks candidates; it does not establish equivalent detection scope.",
     }
     score = min(100, sum(factors[k] for k in (
@@ -146,8 +153,20 @@ def score_pair(cast: dict, semgrep: dict) -> tuple[int, dict, list[dict]]:
 def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 18) -> dict:
     with connect(settings.db_path) as conn:
         initialize(conn)
+        active_pair_sql = """SELECT m.cast_key,m.semgrep_key,m.score FROM match_candidates m
+            JOIN rules c ON c.rule_key=m.cast_key JOIN rules s ON s.rule_key=m.semgrep_key
+            WHERE c.status='present' AND s.status='present'"""
+        before = {(row["cast_key"], row["semgrep_key"]): row["score"] for row in conn.execute(active_pair_sql)}
         cast = [decode_rule(row) for row in conn.execute("SELECT * FROM rules WHERE source='CAST' AND status='present'")]
         semgrep = [decode_rule(row) for row in conn.execute("SELECT * FROM rules WHERE source='Semgrep' AND status='present'")]
+        normalized_rules = 0
+        for rule in [*cast, *semgrep]:
+            normalized = owasp_keys(rule)
+            if rule["owasp"] != normalized:
+                conn.execute("UPDATE rules SET owasp_json=? WHERE rule_key=?",
+                             (json.dumps(normalized), rule["rule_key"]))
+                normalized_rules += 1
+            rule["owasp"] = normalized
         by_cwe: dict[str, set[int]] = defaultdict(set)
         by_owasp: dict[str, set[int]] = defaultdict(set)
         by_token: dict[str, set[int]] = defaultdict(set)
@@ -216,5 +235,14 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
                 """, [(*pair, ev["dimension"], ev["source_rule_key"], ev["reference_url"],
                        ev["reference_field"], ev["excerpt"], ev["origin"]) for ev in evidence])
                 pair_count += 1
+        after = {(row["cast_key"], row["semgrep_key"]): row["score"] for row in conn.execute(active_pair_sql)}
+        new_pairs, removed_pairs = after.keys() - before.keys(), before.keys() - after.keys()
+        newly_matched = {source: len({pair[index] for pair in after} - {pair[index] for pair in before})
+                         for index, source in enumerate(("CAST", "Semgrep"))}
     return {"cast_rules": len(cast), "semgrep_rules": len(semgrep), "candidates": pair_count,
-            "method": "deterministic-v1", "top_k": top_k, "min_score": min_score}
+            "method": "deterministic-v2-owasp", "top_k": top_k, "min_score": min_score,
+            "owasp_normalized_rules": normalized_rules,
+            "active_pairs_before": len(before), "active_pairs_after": len(after),
+            "new_pairs": len(new_pairs), "removed_pairs": len(removed_pairs),
+            "changed_scores": sum(before[pair] != after[pair] for pair in before.keys() & after.keys()),
+            "newly_matched_rules": newly_matched}

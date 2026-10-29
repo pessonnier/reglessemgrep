@@ -15,12 +15,11 @@ import yaml
 
 from .config import Settings
 from .db import connect, create_snapshot, initialize, upsert_rules
-from .normalization import normalize_owasp
+from .normalization import canonical_owasp
 
 
 REPOSITORY = "https://github.com/semgrep/semgrep-rules.git"
 CWE_RE = re.compile(r"CWE-\d+", re.IGNORECASE)
-OWASP_RE = re.compile(r"\b(?:API|A)\d{1,2}(?:[:-]20\d{2})?\b", re.IGNORECASE)
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
@@ -91,7 +90,7 @@ def normalize_semgrep(rule: dict, *, relative_path: str, checkout: Path, revisio
         "frameworks_json": json.dumps([x for x in technologies if x.lower() not in {v.lower() for v in languages}], ensure_ascii=False),
         "technologies_json": json.dumps(technologies, ensure_ascii=False),
         "cwe_json": json.dumps(_refs(metadata.get("cwe"), CWE_RE)),
-        "owasp_json": json.dumps(sorted({normalize_owasp(ref) for ref in _refs(metadata.get("owasp"), OWASP_RE)})),
+        "owasp_json": json.dumps(canonical_owasp(_string_list(metadata.get("owasp")))),
         "owasp_raw_json": json.dumps(_string_list(metadata.get("owasp")), ensure_ascii=False),
         "standards_json": json.dumps(_string_list(metadata.get("standards")), ensure_ascii=False),
         "detection_method": str(rule.get("mode", "search")),

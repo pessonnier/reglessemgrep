@@ -108,3 +108,15 @@ uv run comparator schema-mermaid --from-migrations --output docs/database-schema
 Le [modèle généré](docs/database-schema.md) représente les tables, colonnes, types, clés primaires/étrangères, unicités simples et relations composites. La vue `rule_uncertainty` est incluse et identifiée comme vue ; `--tables-only` l’exclut. `--database chemin.sqlite3` permet de choisir une autre base. Sans `--output`, le résultat est écrit sur la sortie standard.
 
 Le générateur utilise uniquement les métadonnées SQLite et ne lit pas les enregistrements. Il ne migre ni ne modifie une base existante. Les dépendances des vues et les relations logiques sans contrainte SQL ne sont pas inventées. Les champs JSON restent des colonnes TEXT. La sortie est déterministe pour faciliter sa mise à jour et son historique dans Git.
+
+## Critères de jointure CAST ↔ Semgrep et références OWASP
+
+Les règles sont recherchées par CWE commun, référence OWASP commune ou termes communs du titre, puis écartées si leurs langages connus sont incompatibles (avec normalisation des alias, par exemple JEE → Java). La jointure OWASP utilise la même **famille, catégorie et édition** : `A03-2021` côté CAST et `A03:2021 - Injection` côté Semgrep deviennent tous deux `A03:2021` ; casse, espaces, zéros initiaux et tirets typographiques sont normalisés, sans confondre `A03:2017`, `A03:2021` et `API03:2023`. Les références sans année ne sont pas jointes et les valeurs originales restent conservées comme sources. Le score additionne langage (15 points), références (30 pour un CWE commun et 10 pour OWASP, plafonnés ensemble à 35), proximité du titre (20), de la description (20) et catégorie compatible (10). Les références OWASP multiples ne cumulent pas les bonus. Pour retenir une paire, il faut un CWE commun, ou OWASP accompagné d’un terme distinctif du titre et de deux termes descriptifs communs, ou deux termes du titre communs ; il faut aussi atteindre 18/100 et figurer parmi les 15 meilleurs candidats par règle CAST par défaut. Les paires manuelles, revues par un expert ou accompagnées d’une proposition LLM sont conservées. Une catégorie OWASP commune est un indice de similarité, jamais une preuve d’équivalence ; seul l’avis expert qualifie la correspondance. Voir la [méthode détaillée](docs/matching-methodology.md).
+
+Pour recalculer à partir des données locales et obtenir le bilan des nouvelles paires et règles reliées :
+
+```bash
+uv run comparator match --top-k 15 --min-score 18
+```
+
+Bilan du recalcul du **29 octobre 2026** sur le même inventaire : **0 nouvelle paire, 0 règle CAST et 0 règle Semgrep nouvellement reliée** ; 4 516 paires sont conservées, dont 3 139 partagent une référence OWASP. La conversion tiret/deux-points et le bonus OWASP existaient déjà. Le renforcement normalise 172 fiches CAST Mobile sans créer de correspondance supplémentaire dans ce catalogue. Voir le [bilan avant/après](docs/reports/owasp-join-2026-10-29.md).
