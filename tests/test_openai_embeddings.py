@@ -124,6 +124,6 @@ class OpenAIEmbeddingsTests(unittest.TestCase):
 
     def test_batch_byte_limit(self):
         self.update({**self.rule, 'title': 'a' * 8191, 'description': 'b' * 8191})
-        with patch('cast_semgrep.openai_embeddings.MAX_BATCH_BYTES', 10_000):
+        with patch('cast_semgrep.embedding_job.MAX_BATCH_BYTES', 10_000):
             result = self.run_job()
         self.assertEqual(result['requests'], 2)

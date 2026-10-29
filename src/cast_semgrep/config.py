@@ -35,6 +35,7 @@ class Settings:
     cast_password: str
     cast_request_interval: float
     openai_api_key: str = field(default="", repr=False)
+    ollama_base_url: str = "http://127.0.0.1:11434"
 
     @property
     def cast_credentials_available(self) -> bool:
@@ -59,4 +60,5 @@ def load_settings() -> Settings:
         cast_password=get("CAST_PASSWORD"),
         cast_request_interval=max(0.0, float(get("CAST_REQUEST_INTERVAL", "0.35"))),
         openai_api_key=get("OPENAI_API_KEY").strip(),
+        ollama_base_url=get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip(),
     )

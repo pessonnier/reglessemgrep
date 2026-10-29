@@ -48,11 +48,35 @@ def main() -> None:
     embed.add_argument("--batch-size", type=int, default=64)
     embed.add_argument("--limit", type=int, help="Maximum number of missing field vectors to compute")
     embed.add_argument("--dry-run", action="store_true", help="Count missing vectors without calling OpenAI")
+    ollama = sub.add_parser("embed-ollama", help="Calculate and resume embeddings with a local Ollama model")
+    ollama.add_argument("--base-url", help="Local Ollama URL; defaults to OLLAMA_BASE_URL or port 11434")
+    ollama.add_argument("--model", default="bge-m3:567m-fp16")
+    ollama.add_argument("--batch-size", type=int, default=32)
+    ollama.add_argument("--limit", type=int, help="Maximum number of missing field vectors to compute")
+    ollama.add_argument("--dry-run", action="store_true", help="Inspect metadata and count missing fields, without inference")
+    ollama_models = sub.add_parser("ollama-models", help="List models advertised by local Ollama")
+    ollama_models.add_argument("--base-url")
     sub.add_parser("status", help="Show local import status")
     args = parser.parse_args()
     settings = load_settings()
 
-    if args.command == "embed-openai":
+    if args.command in ("embed-ollama", "ollama-models"):
+        import sys
+        from .ollama_embeddings import OllamaClient, run_embeddings, EmbeddingError
+        try:
+            if args.command == "ollama-models":
+                client = OllamaClient(args.base_url or settings.ollama_base_url)
+                result = {'models': [{k: m.get(k) for k in ('name', 'digest', 'capabilities', 'details')} for m in client.models()]}
+            else:
+                result = run_embeddings(settings, base_url=args.base_url, model=args.model, batch_size=args.batch_size,
+                                        limit=args.limit, dry_run=args.dry_run,
+                                        progress=lambda state: print(json.dumps(state), file=sys.stderr, flush=True))
+        except EmbeddingError as error:
+            parser.error(str(error))
+        print(json.dumps(result, indent=2))
+        if result.get('stale_vectors'):
+            raise SystemExit(1)
+    elif args.command == "embed-openai":
         import sys
         from .openai_embeddings import run_embeddings, EmbeddingError
         try:

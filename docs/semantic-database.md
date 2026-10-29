@@ -137,8 +137,42 @@ Les réponses sont contrôlées : modèle, indices uniques, nombre de vecteurs, 
 
 La progression JSON est affichée sur la sortie d’erreur après chaque lot ; le bilan final est affiché sur la sortie standard. `total_tokens` compte les tokens des réponses validées de l’exécution, pas un relevé exhaustif de facturation ni un total historique. Éviter deux exécutions simultanées du même modèle pour ne pas payer des calculs redondants. La clé API et les corps des erreurs distantes ne sont jamais affichés par le script.
 
+## Calcul avec Ollama local
+
+Le script `src/cast_semgrep/ollama_embeddings.py` utilise le point d’accès natif [`POST /api/embed`](https://docs.ollama.com/api/embed). Aucune clé API OpenAI ou connexion Codex n’est nécessaire. Il partage avec le script OpenAI le traitement des versions de texte, des champs manquants et des sauvegardes par lots.
+
+```dotenv
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+```
+
+```bash
+# Inventaire des modèles présents sur votre serveur
+uv run comparator ollama-models
+# Vérifier le modèle et compter les vecteurs manquants sans inférence
+uv run comparator embed-ollama --dry-run
+# Calcul complet, ou reprise des champs manquants
+uv run comparator embed-ollama --model bge-m3:567m-fp16
+# Autre port ou autre modèle déjà installé
+uv run comparator embed-ollama --base-url http://127.0.0.1:11436 --model qwen3-embedding:8b-q8_0
+# Exécution directe comme module Python
+uv run python -m cast_semgrep.ollama_embeddings --limit 20
+uv run comparator semantic-status
+```
+
+La priorité est `--base-url`, puis `OLLAMA_BASE_URL`, puis `http://127.0.0.1:11434`. Le script ne change jamais de port automatiquement : un serveur inaccessible provoque une erreur. Seules les adresses de boucle locale sont acceptées ; les proxys système et redirections HTTP sont désactivés. Aucun modèle n’est téléchargé automatiquement.
+
+Le modèle par défaut est **`bge-m3:567m-fp16`**, déjà présent sur le serveur utilisé pour ce projet. [BGE-M3](https://ollama.com/library/bge-m3) prend en charge plusieurs langues et des textes de longueurs variées. Sa dimension native, lue dans `/api/show`, est de **1 024**. `--model` accepte un autre nom exact figurant dans l’inventaire ; sa capacité `embedding` et sa dimension sont vérifiées. Une dimension cachée de LLM conversationnel ne suffit pas : le modèle doit déclarer cette capacité. La qualité des rapprochements reste à évaluer sur des exemples validés par un expert.
+
+Le registre conserve `provider=ollama`, le nom exact du modèle et sa **véritable empreinte SHA-256** dans `model_revision`. La clé technique contient une empreinte du nom, l’empreinte complète du modèle et la dimension. Chaque lot contrôle l’empreinte avant et après l’inférence : si le modèle a changé, le lot est rejeté. Une relance après mise à jour crée une nouvelle configuration en conservant les anciens vecteurs. Ce contrôle détecte les changements observables entre appels ; il ne remplace pas le gel administratif des modèles durant une exécution.
+
+Les titres et descriptions sont traités séparément, exactement tels qu’archivés (`raw-text-v1`), sans préfixe ni troncature. Le paramètre **`truncate=false`** impose à Ollama de refuser un texte trop long. Le script s’arrête alors avec une erreur et conserve les lots précédents, plutôt que d’enregistrer un vecteur calculé sur un texte incomplet. Le protocole brut est destiné à la comparaison symétrique ; un modèle exigeant des préfixes spécifiques nécessitera un protocole de prétraitement distinct.
+
+Les lots contiennent 32 champs par défaut (`--batch-size`, de 1 à 128) et au maximum 200 000 octets cumulés, sauf un champ unique plus long, soumis au contrôle du contexte par Ollama. `--limit` limite le nombre de champs, pas le nombre de règles. `--dry-run` consulte uniquement les métadonnées Ollama et prépare les documents SQLite, sans enregistrer de modèle ni calculer de vecteurs. Les réponses sont contrôlées avant écriture : modèle, nombre de vecteurs, dimensions et nombres finis non nuls. Un texte périmé est rejeté à l’enregistrement ; les vecteurs déjà présents ne sont pas écrasés.
+
+La progression JSON est affichée après chaque lot. Les erreurs réseau, HTTP 429 et 5xx sont retentées au maximum deux fois. Une exécution terminée se relance sans refaire les embeddings déjà présents. Le compteur `total_tokens` cumule `prompt_eval_count` lorsque le serveur le fournit ; il vaut zéro pour les réponses qui n’incluent pas cette mesure.
+
 ## Portée de cette livraison
 
-Le stockage, le versionnement, la préparation des textes, l’API d’ingestion et le script de calcul OpenAI sont opérationnels. Les appels distants ont lieu uniquement lors d’une exécution explicite de `embed-openai`, jamais lors d’un import ou de l’affichage du site. Il n’y a pas encore d’index de recherche vectorielle ni de calcul de similarité intégré aux rapprochements CAST–Semgrep.
+Le stockage, le versionnement, la préparation des textes, l’API d’ingestion et les scripts de calcul OpenAI et Ollama sont opérationnels. L’inférence a lieu uniquement lors d’une exécution explicite de `embed-openai` ou `embed-ollama`, jamais lors d’un import ou de l’affichage du site. Il n’y a pas encore d’index de recherche vectorielle ni de calcul de similarité intégré aux rapprochements CAST–Semgrep.
 
 Comme l’API expert, cette API est destinée au serveur local `127.0.0.1` et ne dispose pas d’authentification. Les identifiants de connexion CAST ne sont pas utilisés pour les modèles. Un client externe envoyant les textes à un fournisseur devra disposer de sa propre configuration et des autorisations adéquates.
