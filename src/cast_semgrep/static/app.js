@@ -296,9 +296,23 @@ async function openMatch(castKey, semgrepKey) {
     } else {
       score.append(node('strong', `Score de classement ${data.candidate.score}/100 · ${factors.method || 'méthode inconnue'}`));
       score.append(node('div', `Langage ${factors.technical_compatibility ?? 0}/15 · Défaut référencé ${factors.defect_references ?? 0}/35 · Titre ${factors.title_similarity ?? 0}/20 · Description ${factors.description_similarity ?? 0}/20 · Catégorie ${factors.category_similarity ?? 0}/10`, 'small'));
-      score.append(node('div', `Niveau de preuve : ${factors.evidence_level || 'inconnu'} · Préconditions : ${factors.precondition_alignment ?? 'non établies'} · Similarité sémantique : ${factors.semantic_similarity ?? 'non calculée'}`, 'small'));
+      const proofLabels = {shared_reference: 'Références communes', shared_terms_only: 'Termes communs', semantic_hypothesis: 'Hypothèse sémantique à examiner'};
+      score.append(node('div', `Fondement du candidat : ${proofLabels[factors.evidence_level] || factors.evidence_level || 'inconnu'} · Préconditions : ${factors.precondition_alignment ?? 'non établies'}`, 'small'));
+      if (factors.semantic_details) {
+        const semantic = factors.semantic_details;
+        const cosine = value => value == null ? 'indisponible' : Number(value).toFixed(3);
+        score.append(node('div', `Contribution sémantique : ${factors.semantic_points}/20 points dans les blocs titre et description · Score sans embeddings : ${factors.baseline_score}/100`, 'small'));
+        score.append(node('div', `Cosinus titre ${cosine(semantic.title_cosine)} · description ${cosine(semantic.description_cosine)} · combiné ${cosine(semantic.combined_cosine)} · seuil de candidature ${factors.semantic_threshold}`, 'small'));
+        score.append(node('div', `Modèle : ${semantic.model_name} (${semantic.provider}, ${semantic.dimensions} dimensions) · ${semantic.complete ? 'Deux champs comparés' : 'Couverture partielle : repli lexical pour le champ manquant'}`, 'small'));
+        score.append(node('div', 'La proximité sémantique est une hypothèse automatique, pas une probabilité ni une preuve d’équivalence. Les seuils restent à calibrer.', 'small muted'));
+        const provenance = node('details'); provenance.append(node('summary', 'Provenance du calcul sémantique'));
+        provenance.append(node('pre', JSON.stringify(semantic, null, 2))); score.append(provenance);
+      } else {
+        score.append(node('div', 'Similarité sémantique non calculée : classement par références et termes.', 'small muted'));
+      }
+      if (factors.language_compatible === false) score.append(node('div', 'Langages incompatibles : association conservée pour son historique, exclue des nouvelles propositions automatiques.', 'small'));
       score.append(node('div', `Références OWASP communes : ${(factors.shared_owasp || []).join(', ') || 'aucune'} · ${factors.owasp_reference_points ?? ((factors.shared_owasp || []).length ? 10 : 0)} points avant le plafond CWE + OWASP de 35 points.`, 'small'));
-      score.append(node('div', factors.limitations || '', 'small muted'));
+      if (!factors.semantic_details) score.append(node('div', factors.limitations || '', 'small muted'));
     }
     if (factors.manual_association || factors.method === 'manual') score.append(node('p', 'Association manuelle · l’avis expert est enregistré séparément.', 'small'));
   } else score.append(node('strong', 'Comparaison libre · aucune association enregistrée'));

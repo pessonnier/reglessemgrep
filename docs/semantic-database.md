@@ -173,6 +173,6 @@ La progression JSON est affichée après chaque lot. Les erreurs réseau, HTTP 4
 
 ## Portée de cette livraison
 
-Le stockage, le versionnement, la préparation des textes, l’API d’ingestion et les scripts de calcul OpenAI et Ollama sont opérationnels. L’inférence a lieu uniquement lors d’une exécution explicite de `embed-openai` ou `embed-ollama`, jamais lors d’un import ou de l’affichage du site. Il n’y a pas encore d’index de recherche vectorielle ni de calcul de similarité intégré aux rapprochements CAST–Semgrep.
+Le stockage, le versionnement, la préparation des textes, l’API d’ingestion et les scripts de calcul OpenAI et Ollama sont opérationnels. L’inférence a lieu uniquement lors d’une exécution explicite de `embed-openai` ou `embed-ollama`, jamais lors d’un import ou de l’affichage du site. La commande `match` exploite les vecteurs courants via des matrices NumPy pour la recherche de voisins et le score hybride CAST–Semgrep. Aucun index vectoriel persistant supplémentaire n’est nécessaire à cette échelle. Voir la [méthode de rapprochement](matching-methodology.md).
 
 Comme l’API expert, cette API est destinée au serveur local `127.0.0.1` et ne dispose pas d’authentification. Les identifiants de connexion CAST ne sont pas utilisés pour les modèles. Un client externe envoyant les textes à un fournisseur devra disposer de sa propre configuration et des autorisations adéquates.

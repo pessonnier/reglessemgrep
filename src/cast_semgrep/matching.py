@@ -1,4 +1,4 @@
-"""Deterministic candidate ranking. A score is never an equivalence verdict."""
+"""Hybrid candidate ranking. A score is never an equivalence verdict."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 from .config import Settings
 from .db import connect, decode_rule, initialize, utc_now
 from .normalization import canonical_owasp, extract_owasp
+from .semantic_matching import SemanticIndex, apply_semantic_score
 
 
 WORD_RE = re.compile(r"[a-z0-9]{3,}", re.IGNORECASE)
@@ -150,15 +151,30 @@ def score_pair(cast: dict, semgrep: dict) -> tuple[int, dict, list[dict]]:
     return score, factors, evidence
 
 
-def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 18) -> dict:
+def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 18,
+                      semantic: bool = True, semantic_model: str | None = None,
+                      semantic_threshold: float = .75, semantic_top_k: int = 30) -> dict:
+    if top_k < 1 or semantic_top_k < 1 or not 0 <= semantic_threshold <= 1:
+        raise ValueError('top_k doit être positif et le seuil sémantique compris entre 0 et 1.')
     with connect(settings.db_path) as conn:
         initialize(conn)
+        conn.execute('BEGIN IMMEDIATE')
         active_pair_sql = """SELECT m.cast_key,m.semgrep_key,m.score FROM match_candidates m
             JOIN rules c ON c.rule_key=m.cast_key JOIN rules s ON s.rule_key=m.semgrep_key
             WHERE c.status='present' AND s.status='present'"""
         before = {(row["cast_key"], row["semgrep_key"]): row["score"] for row in conn.execute(active_pair_sql)}
-        cast = [decode_rule(row) for row in conn.execute("SELECT * FROM rules WHERE source='CAST' AND status='present'")]
-        semgrep = [decode_rule(row) for row in conn.execute("SELECT * FROM rules WHERE source='Semgrep' AND status='present'")]
+        cast = [decode_rule(row) for row in conn.execute("SELECT * FROM rules WHERE source='CAST' AND status='present' ORDER BY rule_key")]
+        semgrep = [decode_rule(row) for row in conn.execute("SELECT * FROM rules WHERE source='Semgrep' AND status='present' ORDER BY rule_key")]
+        semantic_index = SemanticIndex(conn, cast, semgrep, semantic_model) if semantic else None
+        protected = defaultdict(set)
+        for row in conn.execute("""SELECT m.cast_key,m.semgrep_key FROM match_candidates m
+            WHERE json_extract(m.factors_json,'$.manual_association')=1
+               OR json_extract(m.factors_json,'$.method')='manual'
+               OR EXISTS(SELECT 1 FROM expert_reviews r WHERE r.cast_key=m.cast_key AND r.semgrep_key=m.semgrep_key)
+               OR EXISTS(SELECT 1 FROM llm_proposals l WHERE l.cast_key=m.cast_key AND l.semgrep_key=m.semgrep_key)"""):
+            protected[row['cast_key']].add(row['semgrep_key'])
+        semgrep_positions = {r['rule_key']: i for i,r in enumerate(semgrep)}
+        semgrep_languages = [languages(r) for r in semgrep]
         normalized_rules = 0
         for rule in [*cast, *semgrep]:
             normalized = owasp_keys(rule)
@@ -190,7 +206,7 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
           )
         """)
         pair_count = 0
-        for cast_rule in cast:
+        for cast_index, cast_rule in enumerate(cast):
             candidate_indexes: set[int] = set()
             for ref in cast_rule["cwe"]:
                 candidate_indexes.update(by_cwe.get(ref, ()))
@@ -199,13 +215,25 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
             for term in tokens(cast_rule["title"]):
                 if len(by_token.get(term, ())) <= 250:
                     candidate_indexes.update(by_token.get(term, ()))
-            ranked = []
-            for i in candidate_indexes:
+            cast_languages = languages(cast_rule)
+            compatible = [not (cast_languages and target_languages) or bool(cast_languages & target_languages)
+                          for target_languages in semgrep_languages]
+            semantic_neighbors = semantic_index.neighbors(cast_index, compatible, top_k=semantic_top_k,
+                threshold=semantic_threshold) if semantic_index else set()
+            candidate_indexes.update(semantic_neighbors)
+            protected_targets = protected[cast_rule['rule_key']]
+            candidate_indexes.update(semgrep_positions[key] for key in protected_targets if key in semgrep_positions)
+            ranked, preserved = [], []
+            for i in sorted(candidate_indexes):
                 target = semgrep[i]
-                cast_languages, target_languages = languages(cast_rule), languages(target)
-                if cast_languages and target_languages and not (cast_languages & target_languages):
+                is_protected = target['rule_key'] in protected_targets
+                if not compatible[i] and not is_protected:
                     continue
                 score, factors, evidence = score_pair(cast_rule, target)
+                details = semantic_index.pair(cast_index, i, cast_rule['rule_key'], target['rule_key']) if semantic_index else None
+                score, factors = apply_semantic_score(score, factors, details, threshold=semantic_threshold)
+                factors['language_compatible'] = compatible[i]
+                factors['candidate_origins'] = []
                 distinctive_title_terms = set(factors["shared_title_terms"]) - GENERIC_DEFECT_TERMS
                 plausible = (
                     bool(factors["shared_cwe"])
@@ -213,9 +241,21 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
                         bool(distinctive_title_terms) and len(factors["shared_description_terms"]) >= 2)
                     or len(factors["shared_title_terms"]) >= 2
                 )
-                if score >= min_score and plausible:
-                    ranked.append((score, target["rule_key"], factors, evidence))
-            for score, target_key, factors, evidence in sorted(ranked, key=lambda x: (-x[0], x[1]))[:top_k]:
+                if plausible:
+                    factors['candidate_origins'].append('references_or_terms')
+                if factors.get('semantic_admission') and compatible[i]:
+                    factors['candidate_origins'].append('semantic')
+                    if not plausible:
+                        factors['evidence_level'] = 'semantic_hypothesis'
+                entry = (score, target['rule_key'], factors, evidence)
+                if is_protected:
+                    factors['candidate_origins'].append('preserved_association')
+                    preserved.append(entry)
+                if compatible[i] and score >= min_score and (plausible or factors.get('semantic_admission')):
+                    ranked.append(entry)
+            selected = {entry[1]: entry for entry in sorted(ranked, key=lambda x: (-x[0], x[1]))[:top_k]}
+            selected.update({entry[1]: entry for entry in preserved})
+            for score, target_key, factors, evidence in selected.values():
                 pair = (cast_rule["rule_key"], target_key)
                 conn.execute("""
                   INSERT INTO match_candidates(cast_key,semgrep_key,score,factors_json,suggested_status,updated_at)
@@ -240,7 +280,12 @@ def calculate_matches(settings: Settings, *, top_k: int = 15, min_score: int = 1
         newly_matched = {source: len({pair[index] for pair in after} - {pair[index] for pair in before})
                          for index, source in enumerate(("CAST", "Semgrep"))}
     return {"cast_rules": len(cast), "semgrep_rules": len(semgrep), "candidates": pair_count,
-            "method": "deterministic-v2-owasp", "top_k": top_k, "min_score": min_score,
+            "method": "hybrid-v3-semantic" if semantic_index and semantic_index.model else "deterministic-v2-owasp",
+            "semantic_model": semantic_index.model if semantic_index else None,
+            "semantic_coverage": semantic_index.coverage if semantic_index else None,
+            "invalid_vectors": semantic_index.invalid_vectors if semantic_index else 0,
+            "semantic_threshold": semantic_threshold, "semantic_top_k": semantic_top_k,
+            "top_k": top_k, "min_score": min_score,
             "owasp_normalized_rules": normalized_rules,
             "active_pairs_before": len(before), "active_pairs_after": len(after),
             "new_pairs": len(new_pairs), "removed_pairs": len(removed_pairs),

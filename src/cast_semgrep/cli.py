@@ -29,6 +29,11 @@ def main() -> None:
     match = sub.add_parser("match", help="Recalculate deterministic candidates")
     match.add_argument("--top-k", type=int, default=15)
     match.add_argument("--min-score", type=int, default=18)
+    match_mode = match.add_mutually_exclusive_group()
+    match_mode.add_argument("--no-semantic", action="store_true", help="Use only references and lexical scoring")
+    match_mode.add_argument("--semantic-model", help="Exact model_key from semantic-status; defaults to best current coverage")
+    match.add_argument("--semantic-threshold", type=float, default=.75, help="Minimum weighted cosine for semantic admission")
+    match.add_argument("--semantic-top-k", type=int, default=30, help="Maximum semantic neighbors considered per CAST rule")
     serve = sub.add_parser("serve", help="Start the local web application")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -135,7 +140,13 @@ def main() -> None:
     elif args.command == "import-semgrep":
         print(json.dumps(import_semgrep(settings), indent=2))
     elif args.command == "match":
-        print(json.dumps(calculate_matches(settings, top_k=args.top_k, min_score=args.min_score), indent=2))
+        try:
+            result = calculate_matches(settings, top_k=args.top_k, min_score=args.min_score,
+                                       semantic=not args.no_semantic, semantic_model=args.semantic_model,
+                                       semantic_threshold=args.semantic_threshold, semantic_top_k=args.semantic_top_k)
+        except ValueError as error:
+            parser.error(str(error))
+        print(json.dumps(result, indent=2))
     elif args.command == "serve":
         import uvicorn
         uvicorn.run("cast_semgrep.api:app", host=args.host, port=args.port, reload=False)
