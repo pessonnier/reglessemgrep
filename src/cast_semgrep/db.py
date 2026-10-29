@@ -63,7 +63,14 @@ def initialize(conn: sqlite3.Connection) -> None:
         conn.executescript((MIGRATIONS / "005_expert_code.sql").read_text(encoding="utf-8"))
         conn.execute("PRAGMA user_version = 5")
         version = 5
-    if version != 5:
+    if version == 5:
+        from .semantic import sync_documents
+        conn.executescript("BEGIN IMMEDIATE;\n" + (MIGRATIONS / "006_semantic_vectors.sql").read_text(encoding="utf-8"))
+        sync_documents(conn)
+        conn.execute("PRAGMA user_version = 6")
+        conn.commit()
+        version = 6
+    if version != 6:
         raise RuntimeError(f"Unsupported database schema version: {version}")
 
 
@@ -95,11 +102,15 @@ def upsert_rules(conn: sqlite3.Connection, rules: Iterable[dict], *, source: str
     changes = ",".join(f"{c}=excluded.{c}" for c in RULE_COLUMNS if c != "rule_key")
     sql = f"INSERT INTO rules({columns}) VALUES({markers}) ON CONFLICT(rule_key) DO UPDATE SET {changes}"
     count = 0
+    semantic_enabled = conn.execute("PRAGMA user_version").fetchone()[0] >= 6
+    from .semantic import sync_documents
     if mark_missing:
         conn.execute("UPDATE rules SET status='unseen' WHERE source=? AND status='present'", (source,))
     for rule in rules:
         record = {**rule, "collected_at": now, "snapshot_id": snapshot_id, "status": "present"}
         conn.execute(sql, tuple(record.get(c) for c in RULE_COLUMNS))
+        if semantic_enabled:
+            sync_documents(conn, [record["rule_key"]])
         count += 1
     if mark_missing:
         conn.execute(

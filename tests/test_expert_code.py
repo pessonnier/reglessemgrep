@@ -39,7 +39,7 @@ class ExpertCodeTests(unittest.TestCase):
     def test_migration_preserves_old_opinions_and_defaults_to_no_examples(self):
         with connect(self.config.db_path) as conn:
             initialize(conn)
-            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0],5)
+            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0],6)
         old=api.get_match('CAST:1','Semgrep:1')['expert_reviews'][0]
         self.assertEqual(old['comment'],'Existing opinion')
         self.assertEqual(old['code_examples'],[])

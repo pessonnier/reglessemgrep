@@ -120,3 +120,7 @@ uv run comparator match --top-k 15 --min-score 18
 ```
 
 Bilan du recalcul du **29 octobre 2026** sur le même inventaire : **0 nouvelle paire, 0 règle CAST et 0 règle Semgrep nouvellement reliée** ; 4 516 paires sont conservées, dont 3 139 partagent une référence OWASP. La conversion tiret/deux-points et le bonus OWASP existaient déjà. Le renforcement normalise 172 fiches CAST Mobile sans créer de correspondance supplémentaire dans ce catalogue. Voir le [bilan avant/après](docs/reports/owasp-join-2026-10-29.md).
+
+## Base sémantique multi-modèles
+
+La migration v6 ajoute un stockage local des embeddings à SQLite. `semantic_documents` conserve les versions du titre et de la description ; `semantic_models` décrit chaque fournisseur, modèle, révision et dimension ; `semantic_embeddings` contient les colonnes **`title_vector_json`** et **`description_vector_json`**, avec une ligne par règle, version de texte et modèle. Plusieurs modèles peuvent coexister sans ajout de colonnes. Les imports actualisent les documents, les anciens vecteurs restent historisés et les écritures sur un texte périmé sont rejetées. `uv run comparator semantic-status` affiche la couverture ; `uv run comparator semantic-sync` prépare les documents sans calcul distant. L’API `/api/semantic/` permet de lire les textes et d’insérer les vecteurs. Aucun vecteur n’est encore calculé automatiquement et le score de rapprochement reste inchangé. Voir la [structure et les exemples d’insertion](docs/semantic-database.md).

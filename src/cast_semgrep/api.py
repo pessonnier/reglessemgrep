@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -23,6 +24,14 @@ settings = load_settings()
 static_dir = Path(__file__).parent / "static"
 app = FastAPI(title="CAST–Semgrep Rules Comparator", version="0.1.0")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request, error):
+    # Do not echo potentially huge vectors or non-JSON NaN/Infinity in error bodies.
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": item["loc"], "msg": item["msg"], "type": item["type"]} for item in error.errors()
+    ]})
+
 
 
 @app.get("/", include_in_schema=False)
@@ -456,3 +465,8 @@ def export_matches():
           ORDER BY c.rule_id,m.score DESC
         """)]
     return _csv_response(rows, "matches.csv")
+
+
+# Use a provider so the router shares the application settings, including test databases.
+from .semantic_api import semantic_router
+app.include_router(semantic_router(lambda: settings))

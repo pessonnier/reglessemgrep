@@ -1,5 +1,5 @@
 erDiagram
-    %% SQLite schema version 5
+    %% SQLite schema version 6
     %% Generated from metadata only; no records or inferred view dependencies.
     %% table: expert_reviews
     expert_reviews {
@@ -88,6 +88,56 @@ erDiagram
         TEXT definition_hash "NULL allowed"
         TEXT source_confidence "NULL allowed"
     }
+    %% view: semantic_coverage
+    semantic_coverage {
+        TEXT rule_key "VIEW - derived column"
+        TEXT content_hash "VIEW - derived column"
+        TEXT model_key "VIEW - derived column"
+        UNKNOWN status "VIEW - derived column"
+    }
+    %% view: semantic_current_documents
+    semantic_current_documents {
+        TEXT rule_key "VIEW - derived column"
+        TEXT content_hash "VIEW - derived column"
+        TEXT title "VIEW - derived column"
+        TEXT description "VIEW - derived column"
+        INTEGER has_title "VIEW - derived column"
+        INTEGER has_description "VIEW - derived column"
+        TEXT created_at "VIEW - derived column"
+        TEXT source "VIEW - derived column"
+        TEXT rule_id "VIEW - derived column"
+        TEXT source_version "VIEW - derived column"
+    }
+    %% table: semantic_documents
+    semantic_documents {
+        TEXT rule_key PK, FK "NOT NULL"
+        TEXT content_hash PK "NOT NULL"
+        TEXT title "NOT NULL"
+        TEXT description "NOT NULL"
+        INTEGER has_title "NOT NULL"
+        INTEGER has_description "NOT NULL"
+        TEXT created_at "NOT NULL"
+    }
+    %% table: semantic_embeddings
+    semantic_embeddings {
+        TEXT rule_key PK, FK "NOT NULL"
+        TEXT content_hash PK, FK "NOT NULL"
+        TEXT model_key PK, FK "NOT NULL"
+        TEXT title_vector_json "NULL allowed"
+        TEXT description_vector_json "NULL allowed"
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+    }
+    %% table: semantic_models
+    semantic_models {
+        TEXT model_key PK "NOT NULL"
+        TEXT provider "NOT NULL"
+        TEXT model_name "NOT NULL"
+        TEXT model_revision "NOT NULL"
+        INTEGER dimensions "NOT NULL"
+        TEXT preprocessing "NOT NULL"
+        TEXT created_at "NOT NULL"
+    }
     %% table: snapshots
     snapshots {
         INTEGER id PK "NOT NULL"
@@ -120,5 +170,8 @@ erDiagram
     match_candidates ||..o{ match_evidence : "cast_key, semgrep_key → cast_key, semgrep_key"
     rules ||--o{ match_candidates : "cast_key → rule_key"
     rules ||--o{ match_candidates : "semgrep_key → rule_key"
+    rules ||--o{ semantic_documents : "rule_key → rule_key"
     rules ||..o{ uncertainty_assessments : "rule_key → rule_key"
+    semantic_documents ||--o{ semantic_embeddings : "rule_key, content_hash → rule_key, content_hash"
+    semantic_models ||--o{ semantic_embeddings : "model_key → model_key"
     snapshots ||..o{ rules : "snapshot_id → id"

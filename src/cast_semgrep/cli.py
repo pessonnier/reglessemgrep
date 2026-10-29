@@ -39,6 +39,8 @@ def main() -> None:
     schema.add_argument("--output", type=Path, help="Write to this file instead of standard output")
     schema.add_argument("--format", choices=("mermaid", "markdown"), default="mermaid")
     schema.add_argument("--tables-only", action="store_true", help="Exclude views")
+    sub.add_parser("semantic-sync", help="Snapshot current rule titles/descriptions without generating embeddings")
+    sub.add_parser("semantic-status", help="Show vector coverage by model")
     sub.add_parser("status", help="Show local import status")
     args = parser.parse_args()
     settings = load_settings()
@@ -57,6 +59,15 @@ def main() -> None:
                 print(output, end="")
         except (OSError, sqlite3.Error) as error:
             parser.error(f"Cannot generate schema: {error}. Use --from-migrations for an empty model.")
+    elif args.command in ("semantic-sync", "semantic-status"):
+        from .semantic import sync_documents, semantic_status
+        with connect(settings.db_path) as conn:
+            initialize(conn)
+            added = sync_documents(conn) if args.command == "semantic-sync" else 0
+            result = semantic_status(conn)
+            if args.command == "semantic-sync":
+                result["new_document_versions"] = added
+        print(json.dumps(result, indent=2))
     elif args.command == "init":
         with connect(settings.db_path) as conn:
             initialize(conn)

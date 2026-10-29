@@ -48,3 +48,9 @@ Les chemins `/correspondances`, `/regles` et `/statistiques` servent la même ap
 La base sélectionnée est ouverte avec `mode=ro`, sans migration automatique. L’option `--from-migrations` applique les migrations à une base en mémoire ; elle est utilisable sans données ni collecte. Les sorties livrées sont [Mermaid brut](database-schema.mmd) et [Markdown avec diagramme](database-schema.md). Régénérer les deux lors d’une évolution du schéma.
 
 Syntaxe de référence : [diagrammes entité-relation Mermaid](https://mermaid.js.org/syntax/entityRelationshipDiagram.html).
+
+## Stockage sémantique — schéma v6
+
+La base SQLite intègre un registre de modèles, des documents versionnés par empreinte du titre et de la description, et deux colonnes de vecteurs JSON par couple document/modèle. La clé composée autorise plusieurs modèles de dimensions différentes et préserve les générations historiques. Le contenu original n’est pas tronqué. Les migrations préparent les documents existants ; les imports entretiennent ensuite ce stockage. L’API assure la cohérence de version et de dimension, accepte l’ajout indépendant des deux vecteurs et refuse leur remplacement silencieux. Les vues séparent la version courante et l’historique.
+
+Le [contrat sémantique](semantic-database.md) décrit la provenance déclarative, le protocole `raw-text-v1`, les validations et les limites : génération et recherche vectorielle ne sont pas encore connectées. La similarité sémantique n’est pas injectée dans le score déterministe à cette étape.
