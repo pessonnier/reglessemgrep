@@ -19,5 +19,8 @@
 .topbar nav { flex-wrap: wrap; }
 
 #manual label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: .4rem; }
+footer .project-link { color: inherit; text-underline-offset: 3px; white-space: nowrap; }
+footer .project-link:hover { color: var(--blue); }
+footer .project-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 2px; }
 #unmatched-filters { grid-template-columns: 2fr 1fr 1fr auto auto; }
 @media(max-width:1050px) { #unmatched-filters { grid-template-columns: 1fr 1fr; } }
